@@ -346,6 +346,53 @@ function formatProxyLogTokenValue(value: number | null | undefined): string {
   return typeof value === "number" ? value.toLocaleString() : "--";
 }
 
+function renderCacheStateBadge(log: ProxyLogRenderItem) {
+  const cachedTokens = log.cachedTokens;
+  const hasData =
+    log.promptTokensIncludeCache != null &&
+    (cachedTokens != null || log.cacheWriteTokens != null);
+
+  if (!hasData) {
+    return (
+      <span
+        title="该请求上游未返回缓存字段"
+        style={{
+          color: "var(--color-text-muted)",
+          fontSize: 12,
+          cursor: "help",
+        }}
+      >
+        --
+      </span>
+    );
+  }
+
+  if (typeof cachedTokens === "number" && cachedTokens > 0) {
+    return (
+      <span
+        className="badge"
+        style={{ fontSize: 11, color: "var(--color-success)" }}
+        title={`缓存命中 ${cachedTokens.toLocaleString()} tokens`}
+      >
+        ✓ {cachedTokens.toLocaleString()}
+      </span>
+    );
+  }
+
+  return (
+    <span
+      title="该请求未命中缓存"
+      style={{
+        color: "var(--color-text-muted)",
+        fontSize: 12,
+        cursor: "help",
+      }}
+    >
+      0
+    </span>
+  );
+}
+
 function renderDownstreamKeySummary(log: ProxyLogRenderItem) {
   const parts = [
     log.downstreamKeyName ? `下游 Key: ${log.downstreamKeyName}` : null,
@@ -2714,6 +2761,12 @@ export default function ProxyLogs() {
                       </div>
                     </div>
                     <div className="mobile-summary-metric">
+                      <div className="mobile-summary-metric-label">缓存</div>
+                      <div className="mobile-summary-metric-value">
+                        {renderCacheStateBadge(detailLog)}
+                      </div>
+                    </div>
+                    <div className="mobile-summary-metric">
                       <div className="mobile-summary-metric-label">花费</div>
                       <div className="mobile-summary-metric-value">
                         {typeof log.estimatedCost === "number"
@@ -2826,6 +2879,7 @@ export default function ProxyLogs() {
                 <th style={{ textAlign: "center" }}>用时</th>
                 <th style={{ textAlign: "right" }}>输入</th>
                 <th style={{ textAlign: "right" }}>输出</th>
+                <th style={{ textAlign: "right" }}>缓存</th>
                 <th style={{ textAlign: "right" }}>花费</th>
                 <th style={{ textAlign: "center" }}>重试</th>
               </tr>
@@ -3036,6 +3090,15 @@ export default function ProxyLogs() {
                         }}
                       >
                         {formatProxyLogTokenValue(log.completionTokens)}
+                      </td>
+                      <td
+                        style={{
+                          textAlign: "right",
+                          fontSize: 12,
+                          fontVariantNumeric: "tabular-nums",
+                        }}
+                      >
+                        {renderCacheStateBadge(detailLog)}
                       </td>
                       <td
                         style={{

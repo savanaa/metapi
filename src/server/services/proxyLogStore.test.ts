@@ -5,6 +5,7 @@ const {
   hasProxyLogClientColumnsMock,
   hasProxyLogDownstreamApiKeyIdColumnMock,
   hasProxyLogStreamTimingColumnsMock,
+  hasProxyLogCacheColumnsMock,
   dbInsertMock,
   dbInsertValuesMock,
   dbInsertRunMock,
@@ -14,6 +15,7 @@ const {
   hasProxyLogClientColumnsMock: vi.fn(),
   hasProxyLogDownstreamApiKeyIdColumnMock: vi.fn(),
   hasProxyLogStreamTimingColumnsMock: vi.fn(),
+  hasProxyLogCacheColumnsMock: vi.fn(),
   dbInsertMock: vi.fn(),
   dbInsertValuesMock: vi.fn(),
   dbInsertRunMock: vi.fn(),
@@ -32,6 +34,9 @@ const {
     promptTokens: 'prompt_tokens',
     completionTokens: 'completion_tokens',
     totalTokens: 'total_tokens',
+    cachedTokens: 'cached_tokens',
+    cacheWriteTokens: 'cache_write_tokens',
+    promptTokensIncludeCache: 'prompt_tokens_include_cache',
     estimatedCost: 'estimated_cost',
     billingDetails: 'billing_details',
     clientFamily: 'client_family',
@@ -55,6 +60,7 @@ vi.mock('../db/index.js', () => ({
   hasProxyLogClientColumns: (...args: unknown[]) => hasProxyLogClientColumnsMock(...args),
   hasProxyLogDownstreamApiKeyIdColumn: (...args: unknown[]) => hasProxyLogDownstreamApiKeyIdColumnMock(...args),
   hasProxyLogStreamTimingColumns: (...args: unknown[]) => hasProxyLogStreamTimingColumnsMock(...args),
+  hasProxyLogCacheColumns: (...args: unknown[]) => hasProxyLogCacheColumnsMock(...args),
 }));
 
 import { insertProxyLog, parseProxyLogBillingDetails, withProxyLogSelectFields } from './proxyLogStore.js';
@@ -65,6 +71,7 @@ describe('proxyLogStore', () => {
     hasProxyLogClientColumnsMock.mockReset();
     hasProxyLogDownstreamApiKeyIdColumnMock.mockReset();
     hasProxyLogStreamTimingColumnsMock.mockReset();
+    hasProxyLogCacheColumnsMock.mockReset();
     dbInsertMock.mockReset();
     dbInsertValuesMock.mockReset();
     dbInsertRunMock.mockReset();
@@ -72,6 +79,7 @@ describe('proxyLogStore', () => {
     hasProxyLogClientColumnsMock.mockResolvedValue(false);
     hasProxyLogDownstreamApiKeyIdColumnMock.mockResolvedValue(false);
     hasProxyLogStreamTimingColumnsMock.mockResolvedValue(false);
+    hasProxyLogCacheColumnsMock.mockResolvedValue(false);
 
     dbInsertMock.mockReturnValue({
       values: (...args: unknown[]) => dbInsertValuesMock(...args),
@@ -268,5 +276,50 @@ describe('proxyLogStore', () => {
     });
     expect(dbInsertValuesMock.mock.calls[1][0].isStream).toBeUndefined();
     expect(dbInsertValuesMock.mock.calls[1][0].firstByteLatencyMs).toBeUndefined();
+  });
+
+  it('writes cache fields when the schema supports them', async () => {
+    hasProxyLogCacheColumnsMock.mockResolvedValue(true);
+    dbInsertRunMock.mockResolvedValue(undefined);
+
+    await insertProxyLog({
+      modelRequested: 'gpt-5',
+      cachedTokens: 12,
+      cacheWriteTokens: 3,
+      promptTokensIncludeCache: true,
+    });
+
+    expect(hasProxyLogCacheColumnsMock).toHaveBeenCalledTimes(1);
+    expect(dbInsertValuesMock).toHaveBeenCalledTimes(1);
+    expect(dbInsertValuesMock.mock.calls[0][0]).toMatchObject({
+      modelRequested: 'gpt-5',
+      cachedTokens: 12,
+      cacheWriteTokens: 3,
+      promptTokensIncludeCache: true,
+    });
+  });
+
+  it('retries proxy log inserts without cache fields when those columns are missing', async () => {
+    hasProxyLogCacheColumnsMock.mockResolvedValue(true);
+    dbInsertRunMock
+      .mockRejectedValueOnce(new Error('column proxy_logs.cached_tokens does not exist'))
+      .mockResolvedValueOnce(undefined);
+
+    await insertProxyLog({
+      modelRequested: 'gpt-5',
+      cachedTokens: 7,
+    });
+
+    expect(dbInsertValuesMock).toHaveBeenCalledTimes(2);
+    expect(dbInsertValuesMock.mock.calls[0][0]).toMatchObject({
+      modelRequested: 'gpt-5',
+      cachedTokens: 7,
+    });
+    expect(dbInsertValuesMock.mock.calls[1][0]).toMatchObject({
+      modelRequested: 'gpt-5',
+    });
+    expect(dbInsertValuesMock.mock.calls[1][0].cachedTokens).toBeUndefined();
+    expect(dbInsertValuesMock.mock.calls[1][0].cacheWriteTokens).toBeUndefined();
+    expect(dbInsertValuesMock.mock.calls[1][0].promptTokensIncludeCache).toBeUndefined();
   });
 });

@@ -710,6 +710,110 @@ describe("stats proxy logs routes", () => {
     });
   });
 
+  it("returns cache fields with three-state semantics for proxy logs", async () => {
+    const site = await db
+      .insert(schema.sites)
+      .values({
+        name: "cache-site",
+        url: "https://cache-site.example.com",
+        platform: "new-api",
+      })
+      .returning()
+      .get();
+
+    const account = await db
+      .insert(schema.accounts)
+      .values({
+        siteId: site.id,
+        username: "cache-user",
+        accessToken: "cache-token",
+        status: "active",
+      })
+      .returning()
+      .get();
+
+    await db
+      .insert(schema.proxyLogs)
+      .values([
+        {
+          accountId: account.id,
+          modelRequested: "gpt-5",
+          modelActual: "gpt-5",
+          status: "success",
+          promptTokens: 100,
+          completionTokens: 20,
+          totalTokens: 120,
+          cachedTokens: 80,
+          cacheWriteTokens: 15,
+          promptTokensIncludeCache: true,
+          estimatedCost: 0,
+          createdAt: formatUtcSqlDateTime(new Date("2026-03-10T10:00:00.000Z")),
+        },
+        {
+          accountId: account.id,
+          modelRequested: "gpt-5",
+          modelActual: "gpt-5",
+          status: "success",
+          promptTokens: 50,
+          completionTokens: 10,
+          totalTokens: 60,
+          cachedTokens: 0,
+          cacheWriteTokens: 0,
+          promptTokensIncludeCache: false,
+          estimatedCost: 0,
+          createdAt: formatUtcSqlDateTime(new Date("2026-03-10T10:05:00.000Z")),
+        },
+        {
+          accountId: account.id,
+          modelRequested: "gpt-5",
+          modelActual: "gpt-5",
+          status: "success",
+          promptTokens: 30,
+          completionTokens: 5,
+          totalTokens: 35,
+          cachedTokens: null,
+          cacheWriteTokens: null,
+          promptTokensIncludeCache: null,
+          estimatedCost: 0,
+          createdAt: formatUtcSqlDateTime(new Date("2026-03-10T10:10:00.000Z")),
+        },
+      ])
+      .run();
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/stats/proxy-logs",
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as {
+      items: Array<{
+        cachedTokens: number | null;
+        cacheWriteTokens: number | null;
+        promptTokensIncludeCache: boolean | null;
+      }>;
+    };
+
+    const first = body.items.find((item) => item.cachedTokens === 80);
+    expect(first).toMatchObject({
+      cachedTokens: 80,
+      cacheWriteTokens: 15,
+      promptTokensIncludeCache: true,
+    });
+    const missed = body.items.find((item) => item.cachedTokens === 0);
+    expect(missed).toMatchObject({
+      cachedTokens: 0,
+      cacheWriteTokens: 0,
+      promptTokensIncludeCache: false,
+    });
+    const noData = body.items.find((item) => item.cachedTokens === null);
+    expect(noData).toMatchObject({
+      cachedTokens: null,
+      cacheWriteTokens: null,
+      promptTokensIncludeCache: null,
+    });
+  });
+
   it("supports split query/meta endpoints for progressive loading", async () => {
     const site = await db
       .insert(schema.sites)

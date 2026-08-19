@@ -14,6 +14,9 @@ const SiteDistributionChart = lazy(
 const SiteTrendChart = lazy(
   () => import("../components/charts/SiteTrendChart.js"),
 );
+const CacheHitRateChart = lazy(
+  () => import("../components/charts/CacheHitRateChart.js"),
+);
 
 function getGreeting(): string {
   const hour = new Date().getHours();
@@ -1296,6 +1299,48 @@ export default function Dashboard({
           ) : (
             <Suspense fallback={<ChartFallback height={260} />}>
               <ModelAnalysisPanel data={insightsData?.modelAnalysis} />
+            </Suspense>
+          )}
+        </div>
+
+        <div
+          className="chart-container animate-slide-up stagger-10"
+          style={{ display: "flex", flexDirection: "column" }}
+        >
+          <div
+            style={{
+              fontSize: 14,
+              fontWeight: 600,
+              marginBottom: 16,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              color: "var(--color-text-primary)",
+            }}
+          >
+            <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <svg
+                width="16"
+                height="16"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M13 10V3L4 14h7v7l9-11h-7z"
+                />
+              </svg>
+              缓存命中率
+            </span>
+          </div>
+          {insightsLoading && !insightsData ? (
+            <ChartFallback height={260} />
+          ) : (
+            <Suspense fallback={<ChartFallback height={260} />}>
+              <CacheHitRateChart cacheStats={insightsData?.cacheStats} />
             </Suspense>
           )}
         </div>

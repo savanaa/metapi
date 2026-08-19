@@ -1,1 +1,12 @@
--- no schema changes detected for mysql
+ALTER TABLE `model_day_usage` ADD COLUMN `total_cached_tokens` INT NOT NULL DEFAULT 0;
+ALTER TABLE `model_day_usage` ADD COLUMN `cache_data_calls` INT NOT NULL DEFAULT 0;
+ALTER TABLE `model_day_usage` ADD COLUMN `cache_hit_calls` INT NOT NULL DEFAULT 0;
+ALTER TABLE `proxy_logs` ADD COLUMN `cached_tokens` INT;
+ALTER TABLE `proxy_logs` ADD COLUMN `cache_write_tokens` INT;
+ALTER TABLE `proxy_logs` ADD COLUMN `prompt_tokens_include_cache` INT;
+ALTER TABLE `site_day_usage` ADD COLUMN `total_cached_tokens` INT NOT NULL DEFAULT 0;
+ALTER TABLE `site_day_usage` ADD COLUMN `cache_data_calls` INT NOT NULL DEFAULT 0;
+ALTER TABLE `site_day_usage` ADD COLUMN `cache_hit_calls` INT NOT NULL DEFAULT 0;
+ALTER TABLE `site_hour_usage` ADD COLUMN `total_cached_tokens` INT NOT NULL DEFAULT 0;
+ALTER TABLE `site_hour_usage` ADD COLUMN `cache_data_calls` INT NOT NULL DEFAULT 0;
+ALTER TABLE `site_hour_usage` ADD COLUMN `cache_hit_calls` INT NOT NULL DEFAULT 0;

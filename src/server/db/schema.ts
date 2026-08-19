@@ -255,6 +255,9 @@ export const proxyLogs = sqliteTable('proxy_logs', {
   promptTokens: integer('prompt_tokens'),
   completionTokens: integer('completion_tokens'),
   totalTokens: integer('total_tokens'),
+  cachedTokens: integer('cached_tokens'),
+  cacheWriteTokens: integer('cache_write_tokens'),
+  promptTokensIncludeCache: integer('prompt_tokens_include_cache', { mode: 'boolean' }),
   estimatedCost: real('estimated_cost'),
   billingDetails: text('billing_details'),
   clientFamily: text('client_family'),
@@ -425,6 +428,9 @@ export const siteDayUsage = sqliteTable('site_day_usage', {
   successCalls: integer('success_calls').notNull().default(0),
   failedCalls: integer('failed_calls').notNull().default(0),
   totalTokens: integer('total_tokens').notNull().default(0),
+  totalCachedTokens: integer('total_cached_tokens').notNull().default(0),
+  cacheDataCalls: integer('cache_data_calls').notNull().default(0),
+  cacheHitCalls: integer('cache_hit_calls').notNull().default(0),
   totalSummarySpend: real('total_summary_spend').notNull().default(0),
   totalSiteSpend: real('total_site_spend').notNull().default(0),
   totalLatencyMs: integer('total_latency_ms').notNull().default(0),
@@ -437,7 +443,7 @@ export const siteDayUsage = sqliteTable('site_day_usage', {
   siteIdx: index('site_day_usage_site_id_idx').on(table.siteId),
   nonNegative: check(
     'site_day_usage_non_negative',
-    sql`${table.totalCalls} >= 0 and ${table.successCalls} >= 0 and ${table.failedCalls} >= 0 and ${table.totalTokens} >= 0 and ${table.totalSummarySpend} >= 0 and ${table.totalSiteSpend} >= 0 and ${table.totalLatencyMs} >= 0 and ${table.latencyCount} >= 0`,
+    sql`${table.totalCalls} >= 0 and ${table.successCalls} >= 0 and ${table.failedCalls} >= 0 and ${table.totalTokens} >= 0 and ${table.totalCachedTokens} >= 0 and ${table.cacheDataCalls} >= 0 and ${table.cacheHitCalls} >= 0 and ${table.totalSummarySpend} >= 0 and ${table.totalSiteSpend} >= 0 and ${table.totalLatencyMs} >= 0 and ${table.latencyCount} >= 0`,
   ),
 }));
 
@@ -449,6 +455,9 @@ export const siteHourUsage = sqliteTable('site_hour_usage', {
   successCalls: integer('success_calls').notNull().default(0),
   failedCalls: integer('failed_calls').notNull().default(0),
   totalTokens: integer('total_tokens').notNull().default(0),
+  totalCachedTokens: integer('total_cached_tokens').notNull().default(0),
+  cacheDataCalls: integer('cache_data_calls').notNull().default(0),
+  cacheHitCalls: integer('cache_hit_calls').notNull().default(0),
   totalSummarySpend: real('total_summary_spend').notNull().default(0),
   totalSiteSpend: real('total_site_spend').notNull().default(0),
   totalLatencyMs: integer('total_latency_ms').notNull().default(0),
@@ -461,7 +470,7 @@ export const siteHourUsage = sqliteTable('site_hour_usage', {
   siteIdx: index('site_hour_usage_site_id_idx').on(table.siteId),
   nonNegative: check(
     'site_hour_usage_non_negative',
-    sql`${table.totalCalls} >= 0 and ${table.successCalls} >= 0 and ${table.failedCalls} >= 0 and ${table.totalTokens} >= 0 and ${table.totalSummarySpend} >= 0 and ${table.totalSiteSpend} >= 0 and ${table.totalLatencyMs} >= 0 and ${table.latencyCount} >= 0`,
+    sql`${table.totalCalls} >= 0 and ${table.successCalls} >= 0 and ${table.failedCalls} >= 0 and ${table.totalTokens} >= 0 and ${table.totalCachedTokens} >= 0 and ${table.cacheDataCalls} >= 0 and ${table.cacheHitCalls} >= 0 and ${table.totalSummarySpend} >= 0 and ${table.totalSiteSpend} >= 0 and ${table.totalLatencyMs} >= 0 and ${table.latencyCount} >= 0`,
   ),
 }));
 
@@ -474,6 +483,9 @@ export const modelDayUsage = sqliteTable('model_day_usage', {
   successCalls: integer('success_calls').notNull().default(0),
   failedCalls: integer('failed_calls').notNull().default(0),
   totalTokens: integer('total_tokens').notNull().default(0),
+  totalCachedTokens: integer('total_cached_tokens').notNull().default(0),
+  cacheDataCalls: integer('cache_data_calls').notNull().default(0),
+  cacheHitCalls: integer('cache_hit_calls').notNull().default(0),
   totalSpend: real('total_spend').notNull().default(0),
   totalLatencyMs: integer('total_latency_ms').notNull().default(0),
   latencyCount: integer('latency_count').notNull().default(0),
@@ -486,7 +498,7 @@ export const modelDayUsage = sqliteTable('model_day_usage', {
   modelIdx: index('model_day_usage_model_idx').on(table.model),
   nonNegative: check(
     'model_day_usage_non_negative',
-    sql`${table.totalCalls} >= 0 and ${table.successCalls} >= 0 and ${table.failedCalls} >= 0 and ${table.totalTokens} >= 0 and ${table.totalSpend} >= 0 and ${table.totalLatencyMs} >= 0 and ${table.latencyCount} >= 0`,
+    sql`${table.totalCalls} >= 0 and ${table.successCalls} >= 0 and ${table.failedCalls} >= 0 and ${table.totalTokens} >= 0 and ${table.totalCachedTokens} >= 0 and ${table.cacheDataCalls} >= 0 and ${table.cacheHitCalls} >= 0 and ${table.totalSpend} >= 0 and ${table.totalLatencyMs} >= 0 and ${table.latencyCount} >= 0`,
   ),
 }));
 

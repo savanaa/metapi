@@ -41,6 +41,9 @@ type ProxyLogProjectionRow = {
   modelRequested: string | null;
   siteId: number | null;
   sitePlatform: string | null;
+  cachedTokens: number | null;
+  cacheWriteTokens: number | null;
+  promptTokensIncludeCache: boolean | null;
 };
 
 type SiteDayUsageDeltaRow = {
@@ -50,6 +53,9 @@ type SiteDayUsageDeltaRow = {
   successCalls: number;
   failedCalls: number;
   totalTokens: number;
+  totalCachedTokens: number;
+  cacheDataCalls: number;
+  cacheHitCalls: number;
   totalSummarySpend: number;
   totalSiteSpend: number;
   totalLatencyMs: number;
@@ -63,6 +69,9 @@ type SiteHourUsageDeltaRow = {
   successCalls: number;
   failedCalls: number;
   totalTokens: number;
+  totalCachedTokens: number;
+  cacheDataCalls: number;
+  cacheHitCalls: number;
   totalSummarySpend: number;
   totalSiteSpend: number;
   totalLatencyMs: number;
@@ -77,6 +86,9 @@ type ModelDayUsageDeltaRow = {
   successCalls: number;
   failedCalls: number;
   totalTokens: number;
+  totalCachedTokens: number;
+  cacheDataCalls: number;
+  cacheHitCalls: number;
   totalSpend: number;
   totalLatencyMs: number;
   latencyCount: number;
@@ -396,6 +408,9 @@ async function fetchProjectionBatch(afterId: number, limit: number) {
       modelRequested: schema.proxyLogs.modelRequested,
       siteId: schema.sites.id,
       sitePlatform: schema.sites.platform,
+      cachedTokens: schema.proxyLogs.cachedTokens,
+      cacheWriteTokens: schema.proxyLogs.cacheWriteTokens,
+      promptTokensIncludeCache: schema.proxyLogs.promptTokensIncludeCache,
     })
     .from(schema.proxyLogs)
     .leftJoin(schema.accounts, eq(schema.proxyLogs.accountId, schema.accounts.id))
@@ -441,6 +456,10 @@ function buildProjectionBatchDelta(rows: ProxyLogProjectionRow[]): ProjectionBat
       estimatedCost: row.estimatedCost,
       totalTokens: row.totalTokens,
     });
+    const cachedTokens = normalizeNonNegativeInt(row.cachedTokens);
+    const hasCacheData = isSuccess && row.promptTokensIncludeCache !== null && row.promptTokensIncludeCache !== undefined;
+    const cacheDataCalls = hasCacheData ? 1 : 0;
+    const cacheHitCalls = hasCacheData && cachedTokens > 0 ? 1 : 0;
 
     const siteDayKey = `${localDay}:${siteId}`;
     const siteDay = siteDayMap.get(siteDayKey) || {
@@ -450,6 +469,9 @@ function buildProjectionBatchDelta(rows: ProxyLogProjectionRow[]): ProjectionBat
       successCalls: 0,
       failedCalls: 0,
       totalTokens: 0,
+      totalCachedTokens: 0,
+      cacheDataCalls: 0,
+      cacheHitCalls: 0,
       totalSummarySpend: 0,
       totalSiteSpend: 0,
       totalLatencyMs: 0,
@@ -459,6 +481,9 @@ function buildProjectionBatchDelta(rows: ProxyLogProjectionRow[]): ProjectionBat
     siteDay.successCalls += isSuccess ? 1 : 0;
     siteDay.failedCalls += isSuccess ? 0 : 1;
     siteDay.totalTokens += totalTokens;
+    siteDay.totalCachedTokens += cachedTokens;
+    siteDay.cacheDataCalls += cacheDataCalls;
+    siteDay.cacheHitCalls += cacheHitCalls;
     siteDay.totalSummarySpend += totalSummarySpend;
     siteDay.totalSiteSpend += totalSiteSpend;
     siteDay.totalLatencyMs += latencyMs;
@@ -473,6 +498,9 @@ function buildProjectionBatchDelta(rows: ProxyLogProjectionRow[]): ProjectionBat
       successCalls: 0,
       failedCalls: 0,
       totalTokens: 0,
+      totalCachedTokens: 0,
+      cacheDataCalls: 0,
+      cacheHitCalls: 0,
       totalSummarySpend: 0,
       totalSiteSpend: 0,
       totalLatencyMs: 0,
@@ -482,6 +510,9 @@ function buildProjectionBatchDelta(rows: ProxyLogProjectionRow[]): ProjectionBat
     siteHour.successCalls += isSuccess ? 1 : 0;
     siteHour.failedCalls += isSuccess ? 0 : 1;
     siteHour.totalTokens += totalTokens;
+    siteHour.totalCachedTokens += cachedTokens;
+    siteHour.cacheDataCalls += cacheDataCalls;
+    siteHour.cacheHitCalls += cacheHitCalls;
     siteHour.totalSummarySpend += totalSummarySpend;
     siteHour.totalSiteSpend += totalSiteSpend;
     siteHour.totalLatencyMs += latencyMs;
@@ -497,6 +528,9 @@ function buildProjectionBatchDelta(rows: ProxyLogProjectionRow[]): ProjectionBat
       successCalls: 0,
       failedCalls: 0,
       totalTokens: 0,
+      totalCachedTokens: 0,
+      cacheDataCalls: 0,
+      cacheHitCalls: 0,
       totalSpend: 0,
       totalLatencyMs: 0,
       latencyCount: 0,
@@ -505,6 +539,9 @@ function buildProjectionBatchDelta(rows: ProxyLogProjectionRow[]): ProjectionBat
     modelDay.successCalls += isSuccess ? 1 : 0;
     modelDay.failedCalls += isSuccess ? 0 : 1;
     modelDay.totalTokens += totalTokens;
+    modelDay.totalCachedTokens += cachedTokens;
+    modelDay.cacheDataCalls += cacheDataCalls;
+    modelDay.cacheHitCalls += cacheHitCalls;
     modelDay.totalSpend += modelSpend;
     modelDay.totalLatencyMs += latencyMs;
     modelDay.latencyCount += latencyCount;
@@ -526,6 +563,9 @@ async function upsertSiteDayUsage(tx: typeof db, row: SiteDayUsageDeltaRow, upda
     successCalls: row.successCalls,
     failedCalls: row.failedCalls,
     totalTokens: row.totalTokens,
+    totalCachedTokens: row.totalCachedTokens,
+    cacheDataCalls: row.cacheDataCalls,
+    cacheHitCalls: row.cacheHitCalls,
     totalSummarySpend: row.totalSummarySpend,
     totalSiteSpend: row.totalSiteSpend,
     totalLatencyMs: row.totalLatencyMs,
@@ -541,6 +581,9 @@ async function upsertSiteDayUsage(tx: typeof db, row: SiteDayUsageDeltaRow, upda
           successCalls: sql`${schema.siteDayUsage.successCalls} + ${row.successCalls}`,
           failedCalls: sql`${schema.siteDayUsage.failedCalls} + ${row.failedCalls}`,
           totalTokens: sql`${schema.siteDayUsage.totalTokens} + ${row.totalTokens}`,
+          totalCachedTokens: sql`${schema.siteDayUsage.totalCachedTokens} + ${row.totalCachedTokens}`,
+          cacheDataCalls: sql`${schema.siteDayUsage.cacheDataCalls} + ${row.cacheDataCalls}`,
+          cacheHitCalls: sql`${schema.siteDayUsage.cacheHitCalls} + ${row.cacheHitCalls}`,
           totalSummarySpend: sql`${schema.siteDayUsage.totalSummarySpend} + ${row.totalSummarySpend}`,
           totalSiteSpend: sql`${schema.siteDayUsage.totalSiteSpend} + ${row.totalSiteSpend}`,
           totalLatencyMs: sql`${schema.siteDayUsage.totalLatencyMs} + ${row.totalLatencyMs}`,
@@ -560,6 +603,9 @@ async function upsertSiteDayUsage(tx: typeof db, row: SiteDayUsageDeltaRow, upda
         successCalls: sql`${schema.siteDayUsage.successCalls} + ${row.successCalls}`,
         failedCalls: sql`${schema.siteDayUsage.failedCalls} + ${row.failedCalls}`,
         totalTokens: sql`${schema.siteDayUsage.totalTokens} + ${row.totalTokens}`,
+        totalCachedTokens: sql`${schema.siteDayUsage.totalCachedTokens} + ${row.totalCachedTokens}`,
+        cacheDataCalls: sql`${schema.siteDayUsage.cacheDataCalls} + ${row.cacheDataCalls}`,
+        cacheHitCalls: sql`${schema.siteDayUsage.cacheHitCalls} + ${row.cacheHitCalls}`,
         totalSummarySpend: sql`${schema.siteDayUsage.totalSummarySpend} + ${row.totalSummarySpend}`,
         totalSiteSpend: sql`${schema.siteDayUsage.totalSiteSpend} + ${row.totalSiteSpend}`,
         totalLatencyMs: sql`${schema.siteDayUsage.totalLatencyMs} + ${row.totalLatencyMs}`,
@@ -578,6 +624,9 @@ async function upsertSiteHourUsage(tx: typeof db, row: SiteHourUsageDeltaRow, up
     successCalls: row.successCalls,
     failedCalls: row.failedCalls,
     totalTokens: row.totalTokens,
+    totalCachedTokens: row.totalCachedTokens,
+    cacheDataCalls: row.cacheDataCalls,
+    cacheHitCalls: row.cacheHitCalls,
     totalSummarySpend: row.totalSummarySpend,
     totalSiteSpend: row.totalSiteSpend,
     totalLatencyMs: row.totalLatencyMs,
@@ -593,6 +642,9 @@ async function upsertSiteHourUsage(tx: typeof db, row: SiteHourUsageDeltaRow, up
           successCalls: sql`${schema.siteHourUsage.successCalls} + ${row.successCalls}`,
           failedCalls: sql`${schema.siteHourUsage.failedCalls} + ${row.failedCalls}`,
           totalTokens: sql`${schema.siteHourUsage.totalTokens} + ${row.totalTokens}`,
+          totalCachedTokens: sql`${schema.siteHourUsage.totalCachedTokens} + ${row.totalCachedTokens}`,
+          cacheDataCalls: sql`${schema.siteHourUsage.cacheDataCalls} + ${row.cacheDataCalls}`,
+          cacheHitCalls: sql`${schema.siteHourUsage.cacheHitCalls} + ${row.cacheHitCalls}`,
           totalSummarySpend: sql`${schema.siteHourUsage.totalSummarySpend} + ${row.totalSummarySpend}`,
           totalSiteSpend: sql`${schema.siteHourUsage.totalSiteSpend} + ${row.totalSiteSpend}`,
           totalLatencyMs: sql`${schema.siteHourUsage.totalLatencyMs} + ${row.totalLatencyMs}`,
@@ -612,6 +664,9 @@ async function upsertSiteHourUsage(tx: typeof db, row: SiteHourUsageDeltaRow, up
         successCalls: sql`${schema.siteHourUsage.successCalls} + ${row.successCalls}`,
         failedCalls: sql`${schema.siteHourUsage.failedCalls} + ${row.failedCalls}`,
         totalTokens: sql`${schema.siteHourUsage.totalTokens} + ${row.totalTokens}`,
+        totalCachedTokens: sql`${schema.siteHourUsage.totalCachedTokens} + ${row.totalCachedTokens}`,
+        cacheDataCalls: sql`${schema.siteHourUsage.cacheDataCalls} + ${row.cacheDataCalls}`,
+        cacheHitCalls: sql`${schema.siteHourUsage.cacheHitCalls} + ${row.cacheHitCalls}`,
         totalSummarySpend: sql`${schema.siteHourUsage.totalSummarySpend} + ${row.totalSummarySpend}`,
         totalSiteSpend: sql`${schema.siteHourUsage.totalSiteSpend} + ${row.totalSiteSpend}`,
         totalLatencyMs: sql`${schema.siteHourUsage.totalLatencyMs} + ${row.totalLatencyMs}`,
@@ -631,6 +686,9 @@ async function upsertModelDayUsage(tx: typeof db, row: ModelDayUsageDeltaRow, up
     successCalls: row.successCalls,
     failedCalls: row.failedCalls,
     totalTokens: row.totalTokens,
+    totalCachedTokens: row.totalCachedTokens,
+    cacheDataCalls: row.cacheDataCalls,
+    cacheHitCalls: row.cacheHitCalls,
     totalSpend: row.totalSpend,
     totalLatencyMs: row.totalLatencyMs,
     latencyCount: row.latencyCount,
@@ -645,6 +703,9 @@ async function upsertModelDayUsage(tx: typeof db, row: ModelDayUsageDeltaRow, up
           successCalls: sql`${schema.modelDayUsage.successCalls} + ${row.successCalls}`,
           failedCalls: sql`${schema.modelDayUsage.failedCalls} + ${row.failedCalls}`,
           totalTokens: sql`${schema.modelDayUsage.totalTokens} + ${row.totalTokens}`,
+          totalCachedTokens: sql`${schema.modelDayUsage.totalCachedTokens} + ${row.totalCachedTokens}`,
+          cacheDataCalls: sql`${schema.modelDayUsage.cacheDataCalls} + ${row.cacheDataCalls}`,
+          cacheHitCalls: sql`${schema.modelDayUsage.cacheHitCalls} + ${row.cacheHitCalls}`,
           totalSpend: sql`${schema.modelDayUsage.totalSpend} + ${row.totalSpend}`,
           totalLatencyMs: sql`${schema.modelDayUsage.totalLatencyMs} + ${row.totalLatencyMs}`,
           latencyCount: sql`${schema.modelDayUsage.latencyCount} + ${row.latencyCount}`,
@@ -663,6 +724,9 @@ async function upsertModelDayUsage(tx: typeof db, row: ModelDayUsageDeltaRow, up
         successCalls: sql`${schema.modelDayUsage.successCalls} + ${row.successCalls}`,
         failedCalls: sql`${schema.modelDayUsage.failedCalls} + ${row.failedCalls}`,
         totalTokens: sql`${schema.modelDayUsage.totalTokens} + ${row.totalTokens}`,
+        totalCachedTokens: sql`${schema.modelDayUsage.totalCachedTokens} + ${row.totalCachedTokens}`,
+        cacheDataCalls: sql`${schema.modelDayUsage.cacheDataCalls} + ${row.cacheDataCalls}`,
+        cacheHitCalls: sql`${schema.modelDayUsage.cacheHitCalls} + ${row.cacheHitCalls}`,
         totalSpend: sql`${schema.modelDayUsage.totalSpend} + ${row.totalSpend}`,
         totalLatencyMs: sql`${schema.modelDayUsage.totalLatencyMs} + ${row.totalLatencyMs}`,
         latencyCount: sql`${schema.modelDayUsage.latencyCount} + ${row.latencyCount}`,

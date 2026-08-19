@@ -481,6 +481,9 @@ export type ProxyLogListItem = {
   usageSource?: ProxyLogUsageSource;
   promptTokens?: number | null;
   completionTokens?: number | null;
+  cachedTokens?: number | null;
+  cacheWriteTokens?: number | null;
+  promptTokensIncludeCache?: boolean | null;
   estimatedCost?: number | null;
 };
 

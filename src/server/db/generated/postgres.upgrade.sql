@@ -1,1 +1,12 @@
--- no schema changes detected for postgres
+ALTER TABLE "model_day_usage" ADD COLUMN "total_cached_tokens" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "model_day_usage" ADD COLUMN "cache_data_calls" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "model_day_usage" ADD COLUMN "cache_hit_calls" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "proxy_logs" ADD COLUMN "cached_tokens" INTEGER;
+ALTER TABLE "proxy_logs" ADD COLUMN "cache_write_tokens" INTEGER;
+ALTER TABLE "proxy_logs" ADD COLUMN "prompt_tokens_include_cache" INTEGER;
+ALTER TABLE "site_day_usage" ADD COLUMN "total_cached_tokens" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "site_day_usage" ADD COLUMN "cache_data_calls" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "site_day_usage" ADD COLUMN "cache_hit_calls" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "site_hour_usage" ADD COLUMN "total_cached_tokens" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "site_hour_usage" ADD COLUMN "cache_data_calls" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "site_hour_usage" ADD COLUMN "cache_hit_calls" INTEGER NOT NULL DEFAULT 0;

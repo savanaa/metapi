@@ -211,6 +211,9 @@ export async function completionsProxyRoute(app: FastifyInstance) {
             resolvedUsage.usageSource,
             isStream,
             firstByteLatencyMs,
+            parsedUsage.cacheReadTokens,
+            parsedUsage.cacheCreationTokens,
+            parsedUsage.promptTokensIncludeCache,
           );
           return;
         }
@@ -314,6 +317,9 @@ export async function completionsProxyRoute(app: FastifyInstance) {
           resolvedUsage.usageSource,
           isStream,
           firstByteLatencyMs,
+          parsedUsage.cacheReadTokens,
+          parsedUsage.cacheCreationTokens,
+          parsedUsage.promptTokensIncludeCache,
         );
         return reply.send(data);
       } catch (err: any) {
@@ -388,6 +394,9 @@ async function logProxy(
   usageSource: 'upstream' | 'self-log' | 'unknown' | null = null,
   isStream: boolean,
   firstByteLatencyMs: number | null,
+  cachedTokens = 0,
+  cacheWriteTokens = 0,
+  promptTokensIncludeCache: boolean | null = null,
 ) {
   try {
     const createdAt = formatUtcSqlDateTime(new Date());
@@ -416,6 +425,9 @@ async function logProxy(
       promptTokens,
       completionTokens,
       totalTokens,
+      cachedTokens,
+      cacheWriteTokens,
+      promptTokensIncludeCache,
       estimatedCost,
       billingDetails,
       clientFamily: clientContext?.clientKind || null,

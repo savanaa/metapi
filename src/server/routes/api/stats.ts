@@ -600,6 +600,18 @@ function mapProxyLogRow(
       typeof row.proxy_logs.firstByteLatencyMs === "number"
         ? row.proxy_logs.firstByteLatencyMs
         : null,
+    cachedTokens:
+      typeof row.proxy_logs.cachedTokens === "number"
+        ? row.proxy_logs.cachedTokens
+        : null,
+    cacheWriteTokens:
+      typeof row.proxy_logs.cacheWriteTokens === "number"
+        ? row.proxy_logs.cacheWriteTokens
+        : null,
+    promptTokensIncludeCache:
+      row.proxy_logs.promptTokensIncludeCache == null
+        ? null
+        : Boolean(row.proxy_logs.promptTokensIncludeCache),
     ...(options?.includeBillingDetails
       ? {
           billingDetails: parseProxyLogBillingDetails(
@@ -755,7 +767,7 @@ export async function statsRoutes(app: FastifyInstance) {
           .offset(offset)
           .all();
       },
-      { includeBillingDetails: false },
+      { includeBillingDetails: false, includeCacheFields: true },
     )) as Array<{
       proxy_logs: Record<string, unknown> & { billingDetails?: string | null };
       accounts: { username?: string | null } | null;
@@ -999,7 +1011,7 @@ export async function statsRoutes(app: FastifyInstance) {
             )
             .where(eq(schema.proxyLogs.id, id))
             .get(),
-        { includeBillingDetails: true },
+        { includeBillingDetails: true, includeCacheFields: true },
       )) as
         | {
             proxy_logs: Record<string, unknown> & {

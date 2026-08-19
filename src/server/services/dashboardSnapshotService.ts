@@ -44,11 +44,31 @@ export type DashboardSummaryPayload = {
   };
 };
 
+export type DashboardCacheStats = {
+  totalCachedTokens: number;
+  cacheDataCalls: number;
+  cacheHitCalls: number;
+  bySite: Array<{
+    siteId: number;
+    siteName: string;
+    totalCachedTokens: number;
+    cacheDataCalls: number;
+    cacheHitCalls: number;
+    hourly: Array<{
+      hourStartUtc: string;
+      totalCachedTokens: number;
+      cacheDataCalls: number;
+      cacheHitCalls: number;
+    }>;
+  }>;
+};
+
 export type DashboardInsightsPayload = {
   siteAvailability: ReturnType<
     typeof buildSiteAvailabilitySummariesFromHourlyAggregates
   >;
   modelAnalysis: ReturnType<typeof buildModelAnalysisFromDailyUsage>;
+  cacheStats: DashboardCacheStats;
 };
 
 const DASHBOARD_SUMMARY_TTL_MS = 12_000;
@@ -325,6 +345,83 @@ async function loadDashboardInsightsPayload(): Promise<DashboardInsightsPayload>
         })),
       { days: 7 },
     ),
+    cacheStats: buildDashboardCacheStats(
+      sortedSites,
+      siteAvailabilityRows
+        .filter((row) => activeSiteIdSet.has(row.siteId))
+        .map((row) => ({
+          siteId: row.siteId,
+          bucketStartUtc: row.bucketStartUtc,
+          totalCachedTokens: row.totalCachedTokens,
+          cacheDataCalls: row.cacheDataCalls,
+          cacheHitCalls: row.cacheHitCalls,
+        })),
+    ),
+  };
+}
+
+function buildDashboardCacheStats(
+  sites: Array<{ id: number; name: string | null }>,
+  hourlyRows: Array<{
+    siteId: number;
+    bucketStartUtc: string;
+    totalCachedTokens: number | null;
+    cacheDataCalls: number | null;
+    cacheHitCalls: number | null;
+  }>,
+): DashboardCacheStats {
+  const siteById = new Map(sites.map((site) => [site.id, site]));
+  const bySite = new Map<number, {
+    siteId: number;
+    siteName: string;
+    totalCachedTokens: number;
+    cacheDataCalls: number;
+    cacheHitCalls: number;
+    hourly: Array<{
+      hourStartUtc: string;
+      totalCachedTokens: number;
+      cacheDataCalls: number;
+      cacheHitCalls: number;
+    }>;
+  }>();
+
+  for (const row of hourlyRows) {
+    const site = siteById.get(row.siteId);
+    const key = row.siteId;
+    let entry = bySite.get(key);
+    if (!entry) {
+      entry = {
+        siteId: row.siteId,
+        siteName: site?.name || `Site ${row.siteId}`,
+        totalCachedTokens: 0,
+        cacheDataCalls: 0,
+        cacheHitCalls: 0,
+        hourly: [],
+      };
+      bySite.set(key, entry);
+    }
+    const cachedTokens = Number(row.totalCachedTokens || 0);
+    const dataCalls = Number(row.cacheDataCalls || 0);
+    const hitCalls = Number(row.cacheHitCalls || 0);
+    entry.totalCachedTokens += cachedTokens;
+    entry.cacheDataCalls += dataCalls;
+    entry.cacheHitCalls += hitCalls;
+    entry.hourly.push({
+      hourStartUtc: row.bucketStartUtc,
+      totalCachedTokens: cachedTokens,
+      cacheDataCalls: dataCalls,
+      cacheHitCalls: hitCalls,
+    });
+  }
+
+  const perSite = Array.from(bySite.values());
+  perSite.sort((left, right) => right.totalCachedTokens - left.totalCachedTokens);
+
+  return {
+    totalCachedTokens: perSite.reduce((sum, entry) => sum + entry.totalCachedTokens, 0),
+    cacheDataCalls: perSite.reduce((sum, entry) => sum + entry.cacheDataCalls, 0),
+    cacheHitCalls: perSite.reduce((sum, entry) => sum + entry.cacheHitCalls, 0),
+    bySite: perSite,
   };
 }
 
