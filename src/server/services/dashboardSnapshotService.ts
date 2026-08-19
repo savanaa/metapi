@@ -48,17 +48,20 @@ export type DashboardCacheStats = {
   totalCachedTokens: number;
   cacheDataCalls: number;
   cacheHitCalls: number;
+  totalCalls: number;
   bySite: Array<{
     siteId: number;
     siteName: string;
     totalCachedTokens: number;
     cacheDataCalls: number;
     cacheHitCalls: number;
+    totalCalls: number;
     hourly: Array<{
       hourStartUtc: string;
       totalCachedTokens: number;
       cacheDataCalls: number;
       cacheHitCalls: number;
+      totalCalls: number;
     }>;
   }>;
 };
@@ -352,6 +355,7 @@ async function loadDashboardInsightsPayload(): Promise<DashboardInsightsPayload>
         .map((row) => ({
           siteId: row.siteId,
           bucketStartUtc: row.bucketStartUtc,
+          totalCalls: row.totalCalls,
           totalCachedTokens: row.totalCachedTokens,
           cacheDataCalls: row.cacheDataCalls,
           cacheHitCalls: row.cacheHitCalls,
@@ -365,6 +369,7 @@ function buildDashboardCacheStats(
   hourlyRows: Array<{
     siteId: number;
     bucketStartUtc: string;
+    totalCalls: number | null;
     totalCachedTokens: number | null;
     cacheDataCalls: number | null;
     cacheHitCalls: number | null;
@@ -377,11 +382,13 @@ function buildDashboardCacheStats(
     totalCachedTokens: number;
     cacheDataCalls: number;
     cacheHitCalls: number;
+    totalCalls: number;
     hourly: Array<{
       hourStartUtc: string;
       totalCachedTokens: number;
       cacheDataCalls: number;
       cacheHitCalls: number;
+      totalCalls: number;
     }>;
   }>();
 
@@ -396,6 +403,7 @@ function buildDashboardCacheStats(
         totalCachedTokens: 0,
         cacheDataCalls: 0,
         cacheHitCalls: 0,
+        totalCalls: 0,
         hourly: [],
       };
       bySite.set(key, entry);
@@ -403,14 +411,17 @@ function buildDashboardCacheStats(
     const cachedTokens = Number(row.totalCachedTokens || 0);
     const dataCalls = Number(row.cacheDataCalls || 0);
     const hitCalls = Number(row.cacheHitCalls || 0);
+    const calls = Number(row.totalCalls || 0);
     entry.totalCachedTokens += cachedTokens;
     entry.cacheDataCalls += dataCalls;
     entry.cacheHitCalls += hitCalls;
+    entry.totalCalls += calls;
     entry.hourly.push({
       hourStartUtc: row.bucketStartUtc,
       totalCachedTokens: cachedTokens,
       cacheDataCalls: dataCalls,
       cacheHitCalls: hitCalls,
+      totalCalls: calls,
     });
   }
 
@@ -421,6 +432,7 @@ function buildDashboardCacheStats(
     totalCachedTokens: perSite.reduce((sum, entry) => sum + entry.totalCachedTokens, 0),
     cacheDataCalls: perSite.reduce((sum, entry) => sum + entry.cacheDataCalls, 0),
     cacheHitCalls: perSite.reduce((sum, entry) => sum + entry.cacheHitCalls, 0),
+    totalCalls: perSite.reduce((sum, entry) => sum + entry.totalCalls, 0),
     bySite: perSite,
   };
 }

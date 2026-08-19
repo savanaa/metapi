@@ -45,6 +45,7 @@ describe('CacheHitRateChart', () => {
             totalCachedTokens: 1200,
             cacheDataCalls: 100,
             cacheHitCalls: 30,
+            totalCalls: 200,
             bySite: [
               {
                 siteId: 1,
@@ -52,12 +53,14 @@ describe('CacheHitRateChart', () => {
                 totalCachedTokens: 1200,
                 cacheDataCalls: 100,
                 cacheHitCalls: 30,
+                totalCalls: 200,
                 hourly: [
                   {
                     hourStartUtc: '2026-03-10T10:00:00.000Z',
                     totalCachedTokens: 1200,
                     cacheDataCalls: 100,
                     cacheHitCalls: 30,
+                    totalCalls: 200,
                   },
                 ],
               },
@@ -79,6 +82,7 @@ describe('CacheHitRateChart', () => {
             totalCachedTokens: 0,
             cacheDataCalls: 0,
             cacheHitCalls: 0,
+            totalCalls: 50,
             bySite: [
               {
                 siteId: 2,
@@ -86,12 +90,14 @@ describe('CacheHitRateChart', () => {
                 totalCachedTokens: 0,
                 cacheDataCalls: 0,
                 cacheHitCalls: 0,
+                totalCalls: 50,
                 hourly: [
                   {
                     hourStartUtc: '2026-03-10T10:00:00.000Z',
                     totalCachedTokens: 0,
                     cacheDataCalls: 0,
                     cacheHitCalls: 0,
+                    totalCalls: 50,
                   },
                 ],
               },

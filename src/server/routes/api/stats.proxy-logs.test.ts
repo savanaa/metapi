@@ -814,6 +814,108 @@ describe("stats proxy logs routes", () => {
     });
   });
 
+  it("filters and sorts proxy logs by cache state", async () => {
+    const site = await db
+      .insert(schema.sites)
+      .values({
+        name: "cache-filter-site",
+        url: "https://cache-filter-site.example.com",
+        platform: "new-api",
+      })
+      .returning()
+      .get();
+
+    const account = await db
+      .insert(schema.accounts)
+      .values({
+        siteId: site.id,
+        username: "cache-filter-user",
+        accessToken: "cache-filter-token",
+        status: "active",
+      })
+      .returning()
+      .get();
+
+    const createdAt = (hour: number) =>
+      formatUtcSqlDateTime(new Date(`2026-03-11T10:${String(hour).padStart(2, "0")}:00.000Z`));
+
+    await db
+      .insert(schema.proxyLogs)
+      .values([
+        {
+          accountId: account.id,
+          modelRequested: "gpt-5",
+          modelActual: "gpt-5",
+          status: "success",
+          promptTokens: 100,
+          completionTokens: 20,
+          totalTokens: 120,
+          cachedTokens: 90,
+          cacheWriteTokens: 0,
+          promptTokensIncludeCache: true,
+          estimatedCost: 0,
+          createdAt: createdAt(0),
+        },
+        {
+          accountId: account.id,
+          modelRequested: "gpt-5",
+          modelActual: "gpt-5",
+          status: "success",
+          promptTokens: 50,
+          completionTokens: 10,
+          totalTokens: 60,
+          cachedTokens: 5,
+          cacheWriteTokens: 0,
+          promptTokensIncludeCache: true,
+          estimatedCost: 0,
+          createdAt: createdAt(1),
+        },
+        {
+          accountId: account.id,
+          modelRequested: "gpt-5",
+          modelActual: "gpt-5",
+          status: "success",
+          promptTokens: 30,
+          completionTokens: 5,
+          totalTokens: 35,
+          cachedTokens: null,
+          cacheWriteTokens: null,
+          promptTokensIncludeCache: null,
+          estimatedCost: 0,
+          createdAt: createdAt(2),
+        },
+      ])
+      .run();
+
+    const hitResponse = await app.inject({
+      method: "GET",
+      url: "/api/stats/proxy-logs?cache=hit",
+    });
+    expect(hitResponse.statusCode).toBe(200);
+    const hitItems = (hitResponse.json() as { items: Array<{ cachedTokens: number | null }> }).items;
+    expect(hitItems.length).toBe(2);
+    expect(hitItems.every((item) => item.cachedTokens !== null && item.cachedTokens > 0)).toBe(true);
+
+    const noDataResponse = await app.inject({
+      method: "GET",
+      url: "/api/stats/proxy-logs?cache=no_data",
+    });
+    expect(noDataResponse.statusCode).toBe(200);
+    const noDataItems = (noDataResponse.json() as { items: Array<{ cachedTokens: number | null }> }).items;
+    expect(noDataItems.length).toBe(1);
+    expect(noDataItems[0].cachedTokens).toBeNull();
+
+    const sortedResponse = await app.inject({
+      method: "GET",
+      url: "/api/stats/proxy-logs?cache=has_data&sort=cached_tokens_desc",
+    });
+    expect(sortedResponse.statusCode).toBe(200);
+    const sortedItems = (sortedResponse.json() as { items: Array<{ cachedTokens: number | null }> }).items;
+    expect(sortedItems.length).toBe(2);
+    expect(sortedItems[0].cachedTokens).toBe(90);
+    expect(sortedItems[1].cachedTokens).toBe(5);
+  });
+
   it("supports split query/meta endpoints for progressive loading", async () => {
     const site = await db
       .insert(schema.sites)

@@ -1,6 +1,6 @@
 ﻿import { FastifyInstance } from "fastify";
 import { db, schema } from "../../db/index.js";
-import { and, desc, eq, gte, lt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, lt, sql } from "drizzle-orm";
 import { config } from "../../config.js";
 import { refreshModelsForAccount } from "../../services/modelService.js";
 import * as routeRefreshWorkflow from "../../services/routeRefreshWorkflow.js";
@@ -137,6 +137,8 @@ function proxyCostSqlExpression() {
 }
 
 type ProxyLogStatusFilter = "all" | "success" | "failed";
+type ProxyLogCacheFilter = "all" | "has_data" | "no_data" | "hit" | "miss";
+type ProxyLogCacheSort = "cached_tokens_desc" | "cached_tokens_asc";
 type ProxyLogClientFilter = {
   kind: "app" | "family";
   value: string;
@@ -171,6 +173,22 @@ function normalizeProxyLogStatusFilter(raw?: string): ProxyLogStatusFilter {
   if (normalized === "success") return "success";
   if (normalized === "failed") return "failed";
   return "all";
+}
+
+function normalizeProxyLogCacheFilter(raw?: string): ProxyLogCacheFilter {
+  const normalized = (raw || "").trim().toLowerCase();
+  if (normalized === "has_data") return "has_data";
+  if (normalized === "no_data") return "no_data";
+  if (normalized === "hit") return "hit";
+  if (normalized === "miss") return "miss";
+  return "all";
+}
+
+function normalizeProxyLogCacheSort(raw?: string): ProxyLogCacheSort | null {
+  const normalized = (raw || "").trim().toLowerCase();
+  if (normalized === "cached_tokens_asc") return "cached_tokens_asc";
+  if (normalized === "cached_tokens_desc") return "cached_tokens_desc";
+  return null;
 }
 
 function normalizeProxyLogSearch(raw?: string): string {
@@ -259,6 +277,22 @@ function buildProxyLogClientCondition(client: ProxyLogClientFilter) {
   return eq(schema.proxyLogs.clientFamily, client.value);
 }
 
+function buildProxyLogCacheCondition(cache: ProxyLogCacheFilter) {
+  if (cache === "has_data") {
+    return sql<boolean>`${schema.proxyLogs.promptTokensIncludeCache} is not null`;
+  }
+  if (cache === "no_data") {
+    return sql<boolean>`${schema.proxyLogs.promptTokensIncludeCache} is null`;
+  }
+  if (cache === "hit") {
+    return sql<boolean>`${schema.proxyLogs.promptTokensIncludeCache} is not null and coalesce(${schema.proxyLogs.cachedTokens}, 0) > 0`;
+  }
+  if (cache === "miss") {
+    return sql<boolean>`${schema.proxyLogs.promptTokensIncludeCache} is not null and coalesce(${schema.proxyLogs.cachedTokens}, 0) = 0`;
+  }
+  return null;
+}
+
 function buildProxyLogWhereClause(params: {
   status?: ProxyLogStatusFilter;
   search?: string;
@@ -266,6 +300,7 @@ function buildProxyLogWhereClause(params: {
   siteId?: number | null;
   fromUtc?: string | null;
   toUtc?: string | null;
+  cache?: ProxyLogCacheFilter;
 }) {
   const conditions = [
     params.status ? buildProxyLogStatusCondition(params.status) : null,
@@ -274,6 +309,7 @@ function buildProxyLogWhereClause(params: {
     params.siteId ? eq(schema.sites.id, params.siteId) : null,
     params.fromUtc ? gte(schema.proxyLogs.createdAt, params.fromUtc) : null,
     params.toUtc ? lt(schema.proxyLogs.createdAt, params.toUtc) : null,
+    params.cache ? buildProxyLogCacheCondition(params.cache) : null,
   ].filter(
     (condition): condition is NonNullable<typeof condition> =>
       condition !== null,
@@ -705,6 +741,8 @@ export async function statsRoutes(app: FastifyInstance) {
     siteId?: string;
     from?: string;
     to?: string;
+    cache?: string;
+    sort?: string;
   }) {
     const limit = normalizeProxyLogPageSize(params.limit);
     const offset = normalizeProxyLogOffset(params.offset);
@@ -714,6 +752,8 @@ export async function statsRoutes(app: FastifyInstance) {
     const siteId = normalizeProxyLogSiteId(params.siteId);
     const fromUtc = normalizeProxyLogTimeBoundary(params.from);
     const toUtc = normalizeProxyLogTimeBoundary(params.to);
+    const cache = normalizeProxyLogCacheFilter(params.cache);
+    const sort = normalizeProxyLogCacheSort(params.sort);
     const listWhere = buildProxyLogWhereClause({
       status,
       search,
@@ -721,10 +761,11 @@ export async function statsRoutes(app: FastifyInstance) {
       siteId,
       fromUtc,
       toUtc,
+      cache,
     });
 
     const listRows = (await withProxyLogSelectFields(
-      ({ fields }) => {
+      ({ fields, includeCacheFields }) => {
         let query = db
           .select({
             proxy_logs: fields,
@@ -759,6 +800,17 @@ export async function statsRoutes(app: FastifyInstance) {
 
         if (listWhere) {
           query = query.where(listWhere) as typeof query;
+        }
+
+        if (sort && includeCacheFields) {
+          const order = sort === "cached_tokens_asc"
+            ? asc(schema.proxyLogs.cachedTokens)
+            : desc(schema.proxyLogs.cachedTokens);
+          return query
+            .orderBy(order, desc(schema.proxyLogs.createdAt))
+            .limit(limit)
+            .offset(offset)
+            .all();
         }
 
         return query

@@ -6,6 +6,7 @@ interface CacheHourPoint {
   totalCachedTokens: number;
   cacheDataCalls: number;
   cacheHitCalls: number;
+  totalCalls: number;
 }
 
 interface CacheSiteStat {
@@ -14,6 +15,7 @@ interface CacheSiteStat {
   totalCachedTokens: number;
   cacheDataCalls: number;
   cacheHitCalls: number;
+  totalCalls: number;
   hourly: CacheHourPoint[];
 }
 
@@ -22,6 +24,7 @@ interface CacheHitRateChartProps {
     totalCachedTokens: number;
     cacheDataCalls: number;
     cacheHitCalls: number;
+    totalCalls: number;
     bySite: CacheSiteStat[];
   } | null;
   loading?: boolean;
@@ -101,6 +104,26 @@ export default function CacheHitRateChart({ cacheStats, loading }: CacheHitRateC
           <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>有数据请求</div>
           <div style={{ fontSize: 22, fontWeight: 700 }}>
             {cacheStats.cacheDataCalls.toLocaleString()}
+          </div>
+        </div>
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            color: 'var(--color-text-muted)',
+            fontSize: 12,
+          }}
+        >
+          <div>
+            数据覆盖{' '}
+            {cacheStats.totalCalls > 0
+              ? `${((cacheStats.cacheDataCalls / cacheStats.totalCalls) * 100).toFixed(1)}%`
+              : '--'}
+          </div>
+          <div>
+            {cacheStats.cacheDataCalls.toLocaleString()} / {cacheStats.totalCalls.toLocaleString()}{' '}
+            请求,无数据 {Math.max(0, cacheStats.totalCalls - cacheStats.cacheDataCalls).toLocaleString()}
           </div>
         </div>
       </div>

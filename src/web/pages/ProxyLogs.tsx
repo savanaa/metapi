@@ -19,6 +19,8 @@ import {
   type ProxyLogsSummary,
   type ProxyLogStatusFilter,
   type ProxyLogUsageSource,
+  type ProxyLogCacheFilter,
+  type ProxyLogCacheSort,
 } from "../api.js";
 import { useToast } from "../components/Toast.js";
 import { ModelBadge } from "../components/BrandIcon.js";
@@ -822,6 +824,8 @@ export default function ProxyLogs() {
   );
   const [fromInput, setFromInput] = useState(initialRouteState.from);
   const [toInput, setToInput] = useState(initialRouteState.to);
+  const [cacheFilter, setCacheFilter] = useState<ProxyLogCacheFilter>("all");
+  const [sortFilter, setSortFilter] = useState<ProxyLogCacheSort | "">("");
   const [expanded, setExpanded] = useState<number | null>(null);
   const [page, setPage] = useState(initialRouteState.page);
   const [pageSize, setPageSize] = useState(initialRouteState.pageSize);
@@ -1040,6 +1044,8 @@ export default function ProxyLogs() {
           ...(siteFilter ? { siteId: siteFilter } : {}),
           ...(fromApiBoundary ? { from: fromApiBoundary } : {}),
           ...(toApiBoundaryValue ? { to: toApiBoundaryValue } : {}),
+          ...(cacheFilter && cacheFilter !== "all" ? { cache: cacheFilter } : {}),
+          ...(sortFilter ? { sort: sortFilter } : {}),
         };
         const data = await api.getProxyLogsQuery(params);
         if (seq !== loadSeq.current) return;
@@ -1053,6 +1059,7 @@ export default function ProxyLogs() {
       }
     },
     [
+      cacheFilter,
       clientFilter,
       currentOffset,
       deferredSearchInput,
@@ -1060,6 +1067,7 @@ export default function ProxyLogs() {
       hasInvalidTimeRange,
       pageSize,
       siteFilter,
+      sortFilter,
       statusFilter,
       toApiBoundaryValue,
       toast,
@@ -1736,6 +1744,38 @@ export default function ProxyLogs() {
           }}
           options={resolvedClientOptions}
           placeholder="全部客户端"
+        />
+      </div>
+      <div className="proxy-logs-filter-select">
+        <ModernSelect
+          size="sm"
+          value={cacheFilter}
+          onChange={(nextValue) => {
+            setCacheFilter((nextValue || "all") as ProxyLogCacheFilter);
+            setPage(1);
+          }}
+          options={[
+            { value: "all", label: "全部缓存状态" },
+            { value: "has_data", label: "有缓存数据" },
+            { value: "hit", label: "已命中" },
+            { value: "miss", label: "未命中" },
+            { value: "no_data", label: "无数据" },
+          ]}
+        />
+      </div>
+      <div className="proxy-logs-filter-select">
+        <ModernSelect
+          size="sm"
+          value={sortFilter}
+          onChange={(nextValue) => {
+            setSortFilter((nextValue || "") as ProxyLogCacheSort | "");
+            setPage(1);
+          }}
+          options={[
+            { value: "", label: "按时间排序" },
+            { value: "cached_tokens_desc", label: "缓存命中(高→低)" },
+            { value: "cached_tokens_asc", label: "缓存命中(低→高)" },
+          ]}
         />
       </div>
       <div className="proxy-logs-filter-select">

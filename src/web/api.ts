@@ -502,6 +502,10 @@ export type ProxyLogsSummary = {
   totalTokensAll: number;
 };
 
+export type ProxyLogCacheFilter = "all" | "has_data" | "no_data" | "hit" | "miss";
+
+export type ProxyLogCacheSort = "cached_tokens_desc" | "cached_tokens_asc";
+
 export type ProxyLogsQuery = {
   limit?: number;
   offset?: number;
@@ -511,6 +515,8 @@ export type ProxyLogsQuery = {
   siteId?: number;
   from?: string;
   to?: string;
+  cache?: ProxyLogCacheFilter;
+  sort?: ProxyLogCacheSort;
 };
 
 export type ProxyLogClientOption = {
