@@ -695,4 +695,38 @@ describe('convertClaudeRequestToOpenAiBody', () => {
     expect(Array.isArray(toolMessage?.content)).toBe(true);
     expect(toolMessage?.content.some((part: any) => part?.type === 'image_url')).toBe(true);
   });
+
+  it('normalizes custom tool input_schema into OpenAI-compatible parameters', () => {
+    const { payload } = convertClaudeRequestToOpenAiBody({
+      model: 'gpt-test',
+      max_tokens: 64,
+      stream: true,
+      tools: [
+        {
+          type: 'custom',
+          name: 'Skill',
+          description: 'd',
+          input_schema: {
+            type: 'object',
+            properties: { skill: { type: 'string' } },
+            required: ['skill'],
+          },
+        },
+      ],
+      messages: [{ role: 'user', content: 'hi' }],
+    });
+
+    expect(payload.tools).toEqual([
+      {
+        type: 'custom',
+        name: 'Skill',
+        description: 'd',
+        parameters: {
+          type: 'object',
+          properties: { skill: { type: 'string' } },
+          required: ['skill'],
+        },
+      },
+    ]);
+  });
 });

@@ -299,6 +299,26 @@ export function createClaudeDownstreamContext(): ClaudeDownstreamContext {
   };
 }
 
+export function rememberNormalizedToolCallDeltas(
+  context: StreamTransformContext,
+  toolCallDeltas: NormalizedStreamEvent['toolCallDeltas'],
+): void {
+  if (!Array.isArray(toolCallDeltas)) return;
+
+  for (const toolDelta of toolCallDeltas) {
+    const index = Number.isFinite(toolDelta.index) ? Math.max(0, Math.trunc(toolDelta.index)) : 0;
+    const existing = context.toolCalls[index] || {};
+    const id = toolDelta.id || existing.id;
+    const name = toolDelta.name || existing.name;
+    const nextArguments = `${existing.arguments || ''}${toolDelta.argumentsDelta ?? ''}`;
+    context.toolCalls[index] = {
+      ...(id ? { id } : {}),
+      ...(name ? { name } : {}),
+      arguments: nextArguments,
+    };
+  }
+}
+
 function buildClaudeMessageId(sourceId: string): string {
   if (sourceId.startsWith('msg_')) return sourceId;
   const sanitized = sourceId.replace(/[^A-Za-z0-9_-]/g, '_');
@@ -989,6 +1009,17 @@ function convertClaudeToolsToOpenAiChat(rawTools: unknown): unknown {
     }
 
     if (type === 'function' || type === 'custom' || type === 'image_generation') {
+      // Normalize Anthropic `input_schema` into OpenAI-compatible `parameters` early so
+      // downstream consumers (chat or responses upstream) never see the Anthropic-only
+      // field. `image_generation` carries no schema and stays untouched.
+      if (
+        (type === 'function' || type === 'custom')
+        && item.input_schema !== undefined
+        && item.parameters === undefined
+      ) {
+        const { input_schema, ...rest } = item;
+        return { ...rest, parameters: input_schema };
+      }
       return item;
     }
 
@@ -1939,18 +1970,12 @@ function buildOpenAiStreamChunk(
   }
 
   if (Array.isArray(event.toolCallDeltas) && event.toolCallDeltas.length > 0) {
+    rememberNormalizedToolCallDeltas(context, event.toolCallDeltas);
     const toolCalls = event.toolCallDeltas.map((toolDelta) => {
       const index = Number.isFinite(toolDelta.index) ? Math.max(0, Math.trunc(toolDelta.index)) : 0;
       const existing = context.toolCalls[index] || {};
       const id = toolDelta.id || existing.id;
       const name = toolDelta.name || existing.name || '';
-      const nextArguments = `${existing.arguments || ''}${toolDelta.argumentsDelta ?? ''}`;
-      // Keep synthetic call_meta_* ids as serialization-only fallbacks so later real ids can still backfill.
-      context.toolCalls[index] = {
-        ...(id ? { id } : {}),
-        ...(name || existing.name ? { name: name || existing.name } : {}),
-        arguments: nextArguments,
-      };
 
       const fn: Record<string, unknown> = {};
       if (toolDelta.name) fn.name = toolDelta.name;

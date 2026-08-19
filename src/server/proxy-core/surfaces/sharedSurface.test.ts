@@ -482,6 +482,67 @@ describe('selectSurfaceChannelForAttempt', () => {
       },
       requestedModel: 'gpt-5.2',
       modelName: 'upstream-model',
+      status: 500,
+      errText: 'upstream overloaded',
+      rawErrText: '{"error":"upstream overloaded"}',
+      latencyMs: 1200,
+      retryCount: 0,
+    });
+
+    expect(result).toEqual({ action: 'retry' });
+    expect(recordFailureMock).toHaveBeenCalledWith(11, {
+      status: 500,
+      errorText: '{"error":"upstream overloaded"}',
+      modelName: 'upstream-model',
+    });
+    expect(recordOauthQuotaResetHintMock).toHaveBeenCalledWith({
+      accountId: 33,
+      statusCode: 500,
+      errorText: '{"error":"upstream overloaded"}',
+    });
+    expect(reportProxyAllFailedMock).not.toHaveBeenCalled();
+    expect(insertProxyLogMock).toHaveBeenCalledWith(expect.objectContaining({
+      channelId: 11,
+      accountId: 33,
+      downstreamApiKeyId: 44,
+      modelRequested: 'gpt-5.2',
+      modelActual: 'upstream-model',
+      status: 'failed',
+      httpStatus: 500,
+      latencyMs: 1200,
+      errorMessage: 'normalized error',
+      retryCount: 0,
+    }));
+  });
+
+  it('surfaces upstream HTTP 429 rate limits to the client instead of retrying', async () => {
+    composeProxyLogMessageMock.mockReturnValue('normalized error');
+    formatUtcSqlDateTimeMock.mockReturnValue('2026-03-21 22:00:00');
+    insertProxyLogMock.mockResolvedValue(undefined);
+    shouldRetryProxyRequestMock.mockReturnValue(true);
+    // Even if classification would misread the 429 body, the rate-limit branch
+    // must run first and must never mark the account expired.
+    isTokenExpiredErrorMock.mockReturnValue(true);
+    recordOauthQuotaResetHintMock.mockResolvedValue(null);
+
+    const { createSurfaceFailureToolkit } = await import('./sharedSurface.js');
+    const toolkit = createSurfaceFailureToolkit({
+      warningScope: 'chat',
+      downstreamPath: '/v1/chat/completions',
+      maxRetries: 2,
+      clientContext: null,
+      downstreamApiKeyId: 44,
+    });
+
+    const result = await toolkit.handleUpstreamFailure({
+      selected: {
+        channel: { id: 11, routeId: 22 },
+        account: { id: 33, username: 'oauth-user' },
+        site: { name: 'Codex OAuth' },
+        actualModel: 'upstream-model',
+      },
+      requestedModel: 'gpt-5.2',
+      modelName: 'upstream-model',
       status: 429,
       errText: 'quota exceeded',
       rawErrText: '{"error":"quota exceeded"}',
@@ -489,7 +550,16 @@ describe('selectSurfaceChannelForAttempt', () => {
       retryCount: 0,
     });
 
-    expect(result).toEqual({ action: 'retry' });
+    expect(result).toEqual({
+      action: 'respond',
+      status: 429,
+      payload: {
+        error: {
+          message: 'quota exceeded',
+          type: 'upstream_error',
+        },
+      },
+    });
     expect(recordFailureMock).toHaveBeenCalledWith(11, {
       status: 429,
       errorText: '{"error":"quota exceeded"}',
@@ -500,7 +570,7 @@ describe('selectSurfaceChannelForAttempt', () => {
       statusCode: 429,
       errorText: '{"error":"quota exceeded"}',
     });
-    expect(reportProxyAllFailedMock).not.toHaveBeenCalled();
+    expect(reportTokenExpiredMock).not.toHaveBeenCalled();
     expect(insertProxyLogMock).toHaveBeenCalledWith(expect.objectContaining({
       channelId: 11,
       accountId: 33,
@@ -541,9 +611,9 @@ describe('selectSurfaceChannelForAttempt', () => {
       },
       requestedModel: 'gpt-5.2',
       modelName: 'upstream-model',
-      status: 429,
-      errText: 'quota exceeded',
-      rawErrText: '{"error":"quota exceeded"}',
+      status: 500,
+      errText: 'upstream overloaded',
+      rawErrText: '{"error":"upstream overloaded"}',
       latencyMs: 1200,
       retryCount: 0,
     })).resolves.toEqual({ action: 'retry' });

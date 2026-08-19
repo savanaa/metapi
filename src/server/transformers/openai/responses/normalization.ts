@@ -239,6 +239,18 @@ function sanitizeResponsesInputToolLifecycle(items: unknown[]): unknown[] {
 
 export function normalizeResponsesMessageItem(item: Record<string, unknown>): Record<string, unknown> {
   const type = asTrimmedString(item.type).toLowerCase();
+  // Clients may send non-standard input item types whose payload lives in fields other
+  // than `content` (e.g. Codex 0.148 `additional_tools` carries `tools`). Pass them
+  // through untouched instead of rewriting items that carry a `role` into a message
+  // with an undefined `content`, which upstream rejects with HTTP 400.
+  if (
+    type
+    && type !== 'message'
+    && !RESPONSES_TOOL_CALL_ITEM_TYPES.has(type)
+    && !RESPONSES_TOOL_OUTPUT_ITEM_TYPES.has(type)
+  ) {
+    return withNormalizedResponsesInputStatus(item);
+  }
   if (RESPONSES_TOOL_CALL_ITEM_TYPES.has(type) || RESPONSES_TOOL_OUTPUT_ITEM_TYPES.has(type)) {
     return normalizeResponsesToolLifecycleItem(item) ?? item;
   }

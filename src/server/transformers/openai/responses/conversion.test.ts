@@ -119,6 +119,37 @@ describe('responses conversion single source of truth', () => {
       }),
     ]);
   });
+
+  it('passes non-message input item types through untouched (Codex additional_tools)', () => {
+    const tools = [
+      {
+        type: 'namespace',
+        name: 'functions',
+        tools: [{ type: 'custom', name: 'exec', description: 'run a command' }],
+      },
+    ];
+    const normalized = normalizeResponsesInputForCompatibility([
+      {
+        type: 'additional_tools',
+        role: 'developer',
+        tools,
+      },
+      { role: 'user', content: 'hi' },
+    ]);
+
+    expect(normalized).toEqual([
+      {
+        type: 'additional_tools',
+        role: 'developer',
+        tools,
+      },
+      {
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'input_text', text: 'hi' }],
+      },
+    ]);
+  });
 });
 
 describe('sanitizeResponsesBodyForProxy', () => {
@@ -605,6 +636,49 @@ describe('convertOpenAiBodyToResponsesBody', () => {
         },
       ],
     });
+  });
+
+  it('normalizes Anthropic input_schema into parameters for custom tools', () => {
+    const inputSchema = {
+      type: 'object',
+      properties: { skill: { type: 'string' } },
+      required: ['skill'],
+    };
+    const result = convertOpenAiBodyToResponsesBody(
+      {
+        model: 'gpt-5',
+        messages: [{ role: 'user', content: 'hi' }],
+        tools: [
+          {
+            type: 'custom',
+            name: 'Skill',
+            description: 'd',
+            input_schema: inputSchema,
+          },
+          {
+            type: 'custom',
+            name: 'Plain',
+            parameters: { type: 'object' },
+          },
+        ],
+      },
+      'gpt-5',
+      false,
+    );
+
+    expect(result.tools).toEqual([
+      {
+        type: 'custom',
+        name: 'Skill',
+        description: 'd',
+        parameters: inputSchema,
+      },
+      {
+        type: 'custom',
+        name: 'Plain',
+        parameters: { type: 'object' },
+      },
+    ]);
   });
 
   it('maps OpenAI response_format into Responses text.format while preserving verbosity', () => {

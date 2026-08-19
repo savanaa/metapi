@@ -346,6 +346,30 @@ describe('chat proxy stream behavior', () => {
     expect(recordFailureMock).toHaveBeenCalledTimes(1);
   });
 
+  it('surfaces upstream HTTP 429 to the client instead of retrying into a 503', async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({
+      error: { message: 'rate limit exceeded' },
+    }), {
+      status: 429,
+      headers: { 'content-type': 'application/json' },
+    }));
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      payload: {
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'user', content: 'hi' }],
+      },
+    });
+
+    expect(response.statusCode).toBe(429);
+    expect(response.json()?.error?.type).toBe('upstream_error');
+    expect(response.json()?.error?.message).toContain('rate limit exceeded');
+    expect(recordFailureMock).toHaveBeenCalledTimes(1);
+    expect(selectNextChannelMock).not.toHaveBeenCalled();
+  });
+
   it('returns HTTP upstream_error instead of hijacking when streamed chat requests receive empty non-SSE payloads', async () => {
     config.proxyEmptyContentFailEnabled = true;
 
@@ -978,6 +1002,76 @@ describe('chat proxy stream behavior', () => {
     expect(response.body).toContain('"type":"input_json_delta"');
     expect(response.body).toContain('"partial_json":"{\\"pattern\\":\\"README*\\"}"');
     expect(response.body).toContain('"stop_reason":"tool_use"');
+  });
+
+  it('converts Responses function-call SSE arguments into Claude input_json_delta events', async () => {
+    selectChannelMock.mockReturnValue({
+      channel: { id: 11, routeId: 22 },
+      site: { name: 'openai-site', url: 'https://api.openai.com', platform: 'openai' },
+      account: { id: 33, username: 'demo-user' },
+      tokenName: 'default',
+      tokenValue: 'sk-openai',
+      actualModel: 'gpt-4o-mini',
+    });
+
+    const encoder = new TextEncoder();
+    const upstreamBody = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode('event: response.created\ndata: {"type":"response.created","response":{"id":"resp-claude-tool","model":"gpt-4o-mini","created_at":1706000000,"status":"in_progress","output":[]}}\n\n'));
+        controller.enqueue(encoder.encode('event: response.output_item.added\ndata: {"type":"response.output_item.added","output_index":1,"item":{"id":"fc_1","type":"function_call","call_id":"call_skill","name":"Skill","arguments":""}}\n\n'));
+        controller.enqueue(encoder.encode('event: response.function_call_arguments.delta\ndata: {"type":"response.function_call_arguments.delta","output_index":1,"item_id":"fc_1","delta":"{\\"args\\":\\"\\",\\"skill\\":\\"superpowers:using-superpowers\\"}"}\n\n'));
+        controller.enqueue(encoder.encode('event: response.function_call_arguments.done\ndata: {"type":"response.function_call_arguments.done","output_index":1,"item_id":"fc_1","arguments":"{\\"args\\":\\"\\",\\"skill\\":\\"superpowers:using-superpowers\\"}"}\n\n'));
+        controller.enqueue(encoder.encode('event: response.completed\ndata: {"type":"response.completed","response":{"id":"resp-claude-tool","model":"gpt-4o-mini","status":"completed","usage":{"input_tokens":5,"output_tokens":3,"total_tokens":8}}}\n\n'));
+        controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+        controller.close();
+      },
+    });
+
+    fetchMock.mockResolvedValue(new Response(upstreamBody, {
+      status: 200,
+      headers: { 'content-type': 'text/event-stream; charset=utf-8' },
+    }));
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/messages',
+      payload: {
+        model: 'gpt-4o-mini',
+        stream: true,
+        max_tokens: 256,
+        tools: [{
+          name: 'Skill',
+          description: 'Load a skill',
+          input_schema: { type: 'object', properties: { skill: { type: 'string' } } },
+        }],
+        messages: [{ role: 'user', content: 'use the skill' }],
+      },
+    });
+
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.headers['content-type']).toContain('text/event-stream');
+    expect(response.body).toContain('event: content_block_start');
+    expect(response.body).toContain('"type":"tool_use"');
+    expect(response.body).toContain('"name":"Skill"');
+    expect(response.body).toContain('event: content_block_delta');
+    expect(response.body).toContain('"type":"input_json_delta"');
+    expect(response.body).toContain('superpowers:using-superpowers');
+    const inputJsonDeltas = response.body
+      .split('\n\n')
+      .map((block) => block.split('\n').find((line) => line.startsWith('data: '))?.slice(6) || '')
+      .map((data) => {
+        try {
+          return JSON.parse(data);
+        } catch {
+          return null;
+        }
+      })
+      .filter((payload) => payload?.type === 'content_block_delta' && payload?.delta?.type === 'input_json_delta')
+      .map((payload) => payload.delta.partial_json);
+    expect(inputJsonDeltas.join('')).toBe('{"args":"","skill":"superpowers:using-superpowers"}');
+    expect(response.body).toContain('event: message_delta');
+    expect(response.body).toContain('"stop_reason":"tool_use"');
+    expect(response.body).toContain('event: message_stop');
   });
 
   it('keeps final content when upstream chunk carries both delta and finish_reason on /v1/messages', async () => {

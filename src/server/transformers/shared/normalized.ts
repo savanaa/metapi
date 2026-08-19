@@ -7,6 +7,7 @@ export {
   normalizeUpstreamStreamEvent,
   parseDownstreamChatRequest,
   pullSseEventsWithDone,
+  rememberNormalizedToolCallDeltas,
   serializeFinalResponse,
   serializeNormalizedStreamEvent,
   serializeStreamDone,

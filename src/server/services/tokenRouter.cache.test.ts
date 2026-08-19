@@ -612,7 +612,11 @@ describe('TokenRouter runtime cache', () => {
 
     expect(cooledSibling?.cooldownUntil).toBeTruthy();
     expect(cooledSibling?.failCount).toBe(0);
-    expect(await router.selectChannel('gpt-4o-mini')).toBeNull();
+    // A rate-limit cooldown is transient: when the only candidate for a model is
+    // cooldown-blocked, selection falls back to it instead of returning no channel
+    // (which would surface as a 503 "no available channels" to the client).
+    const fallbackSelection = await router.selectChannel('gpt-4o-mini');
+    expect(fallbackSelection?.channel.id).toBe(siblingChannel.id);
   });
 
   it('clears short-window cooldown on sibling channels after a successful recovery probe', async () => {

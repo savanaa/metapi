@@ -24,6 +24,12 @@ export function isTokenExpiredError(input: { status?: number; message?: string |
   const rawMessage = input.message || '';
   const text = (input.message || '').toLowerCase();
   if (isEndpointDispatchDeniedMessage(rawMessage)) return false;
+  // HTTP 429 is an upstream rate-limit signal, not a dead credential. Upstream
+  // error bodies may echo the full request (including prompts that contain
+  // "token"/"expired"), so a rate-limited response must never trip the keyword
+  // matching below and mark the account as expired.
+  if (input.status === 429 || containsHttpStatus(rawMessage, 429)) return false;
+  if (/too\s+many\s+requests|rate\s+limit|quota\s+exceeded/.test(text)) return false;
   if (input.status === 401 || containsHttpStatus(rawMessage, 401)) return true;
   if (!text) return false;
 

@@ -34,6 +34,18 @@ describe('alertRules', () => {
     })).toBe(false);
   });
 
+  it('never treats HTTP 429 rate limits as token expiration even when the body echoes token/expired words', () => {
+    const rateLimitedBody = [
+      'Upstream returned HTTP 429: event: response.created data: {"type":"response.created"',
+      '"instructions":"You are Claude Code... session tokens ... auto-expired after 7 days ..."',
+      '"error":{"code":"rate_limit_exceeded","message":"Your requests to gpt-5.6-luna ... have exceeded rate limit."}',
+    ].join(' ');
+    expect(isTokenExpiredError({ status: 429, message: rateLimitedBody })).toBe(false);
+    expect(isTokenExpiredError({ message: 'HTTP 429: too many requests' })).toBe(false);
+    expect(isTokenExpiredError({ message: 'rate limit exceeded' })).toBe(false);
+    expect(isTokenExpiredError({ message: 'quota exceeded' })).toBe(false);
+  });
+
   it('appends rebind hint for invalid access token messages', () => {
     expect(appendSessionTokenRebindHint('无权进行此操作，access token 无效'))
       .toContain('请在中转站重新生成系统访问令牌后重新绑定账号');

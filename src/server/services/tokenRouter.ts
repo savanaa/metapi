@@ -2856,15 +2856,24 @@ export class TokenRouter {
 
     const nowIso = new Date().toISOString();
     const nowMs = Date.now();
-    const available = match.channels.filter((candidate) => (
-      this.getCandidateEligibilityReasons(candidate, {
-        requestedModel,
-        bypassSourceModelCheck,
-        excludeChannelIds,
-        nowIso,
-        downstreamPolicy,
-      }).length === 0
+    const eligibilityOptions: CandidateEligibilityOptions = {
+      requestedModel,
+      bypassSourceModelCheck,
+      excludeChannelIds,
+      nowIso,
+      downstreamPolicy,
+    };
+    let available = match.channels.filter((candidate) => (
+      this.getCandidateEligibilityReasons(candidate, eligibilityOptions).length === 0
     ));
+
+    if (available.length === 0) {
+      // Rate-limit cooldowns (HTTP 429) are transient: when the only candidates are
+      // cooldown-blocked, keep trying them instead of failing the whole request with
+      // 503 "no available channels". Hard ineligibility (disabled account/site,
+      // missing token, already-tried channel) is never bypassed.
+      available = this.getCooldownOnlyIneligibleCandidates(match.channels, eligibilityOptions);
+    }
 
     if (available.length === 0) return null;
 
@@ -2991,15 +3000,22 @@ export class TokenRouter {
 
     const nowIso = new Date().toISOString();
     const nowMs = Date.now();
-    const available = match.channels.filter((candidate) => (
-      this.getCandidateEligibilityReasons(candidate, {
-        requestedModel,
-        bypassSourceModelCheck,
-        excludeChannelIds,
-        nowIso,
-        downstreamPolicy,
-      }).length === 0
+    const eligibilityOptions: CandidateEligibilityOptions = {
+      requestedModel,
+      bypassSourceModelCheck,
+      excludeChannelIds,
+      nowIso,
+      downstreamPolicy,
+    };
+    let available = match.channels.filter((candidate) => (
+      this.getCandidateEligibilityReasons(candidate, eligibilityOptions).length === 0
     ));
+    if (available.length === 0) {
+      // Same cooldown-only fallback as selectFromMatch: a rate-limit cooldown is
+      // transient and should not turn the preferred (sticky/forced) channel into a
+      // hard "no available channels" failure.
+      available = this.getCooldownOnlyIneligibleCandidates(match.channels, eligibilityOptions);
+    }
 
     const preferred = available.find((candidate) => candidate.channel.id === preferredChannelId);
     if (!preferred) return null;
@@ -3376,6 +3392,16 @@ export class TokenRouter {
     }
 
     return reasonParts;
+  }
+
+  private getCooldownOnlyIneligibleCandidates(
+    candidates: RouteChannelCandidate[],
+    options: CandidateEligibilityOptions,
+  ): RouteChannelCandidate[] {
+    return candidates.filter((candidate) => {
+      const reasons = this.getCandidateEligibilityReasons(candidate, options);
+      return reasons.length > 0 && reasons.every((reason) => reason === '冷却中');
+    });
   }
 
   private getRoundRobinCandidates(candidates: RouteChannelCandidate[]): RouteChannelCandidate[] {

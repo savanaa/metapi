@@ -566,6 +566,31 @@ export function createSurfaceFailureToolkit(input: {
         errorText: rawErrText,
       }));
 
+      // HTTP 429 is an upstream rate-limit signal, not a channel fault or a
+      // dead credential. Retrying internally only burns attempts and, when no
+      // alternative channel exists, converts a recoverable 429 into a 503 "no
+      // available channels" failure. Surface the 429 to the client so it can
+      // honor Retry-After/backoff itself; the cooldown already marks the channel
+      // so the next attempt routes elsewhere when an alternative becomes
+      // available. This must run before the token-expired classification below,
+      // since upstream 429 bodies can echo prompts that contain "token"/"expired".
+      if (args.status === 429) {
+        runBestEffort('report proxy all failed', () => reportProxyAllFailed({
+          model: args.requestedModel,
+          reason: 'upstream returned HTTP 429',
+        }));
+        return {
+          action: 'respond',
+          status: 429,
+          payload: {
+            error: {
+              message: args.errText,
+              type: 'upstream_error',
+            },
+          },
+        };
+      }
+
       if (isTokenExpiredError({ status: args.status, message: args.errText })) {
         runBestEffort('report token expired', () => reportTokenExpired({
           accountId: args.selected.account.id,

@@ -377,6 +377,14 @@ function convertOpenAiToolsToResponses(
       }
 
       if (type === 'custom' && asTrimmedString(item.name)) {
+        // Claude tool definitions carry Anthropic's `input_schema`, but the Responses
+        // upstream only accepts `parameters`. Normalize at this choke point so custom
+        // tools arriving from any downstream (chat or claude) no longer fail with
+        // "Unknown parameter: 'tools[0].input_schema'".
+        if (item.input_schema !== undefined && item.parameters === undefined) {
+          const { input_schema, ...rest } = item;
+          return { ...rest, parameters: input_schema };
+        }
         return item;
       }
 

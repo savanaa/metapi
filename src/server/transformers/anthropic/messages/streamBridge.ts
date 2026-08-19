@@ -4,6 +4,7 @@ import {
   normalizeStopReason,
   normalizeUpstreamStreamEvent,
   pullSseEventsWithDone,
+  rememberNormalizedToolCallDeltas,
   type ClaudeDownstreamContext,
   type NormalizedFinalResponse,
   type NormalizedStreamEvent,
@@ -1022,6 +1023,7 @@ export const anthropicMessagesStream = {
     }
 
     if (Array.isArray(event.toolCallDeltas) && event.toolCallDeltas.length > 0) {
+      rememberNormalizedToolCallDeltas(streamContext, event.toolCallDeltas);
       events.push(...closeRedactedBlock(context));
       events.push(...closeTextBlock(context));
       events.push(...closeThinkingBlock(context));
