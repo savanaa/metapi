@@ -181,15 +181,40 @@ export async function selectSiteApiEndpointTarget(
     });
 
   const selected = eligible[0];
-  if (!selected) return null;
+  if (selected) {
+    return {
+      kind: 'endpoint',
+      siteId: site.id,
+      endpointId: selected.id,
+      baseUrl: normalizeSiteApiEndpointBaseUrl(selected.url),
+      configuredEndpointCount: endpoints.length,
+      endpoint: selected,
+    };
+  }
+
+  // Every configured endpoint is cooling down (e.g. a 429 rate limit). A
+  // rate-limit cooldown is transient, so fall back to the coolest (soonest to
+  // recover) endpoint instead of failing the whole request with "no available
+  // API addresses". Hard ineligibility (disabled endpoint) is never bypassed.
+  const cooling = endpoints
+    .filter((endpoint) => (endpoint.enabled ?? true) && isEndpointCoolingDown(endpoint, nowIso))
+    .sort((left, right) => {
+      const leftCooldown = left.cooldownUntil ? Date.parse(left.cooldownUntil) : Infinity;
+      const rightCooldown = right.cooldownUntil ? Date.parse(right.cooldownUntil) : Infinity;
+      if (leftCooldown !== rightCooldown) return leftCooldown - rightCooldown;
+      return (left.id ?? 0) - (right.id ?? 0);
+    });
+
+  const coolest = cooling[0];
+  if (!coolest) return null;
 
   return {
     kind: 'endpoint',
     siteId: site.id,
-    endpointId: selected.id,
-    baseUrl: normalizeSiteApiEndpointBaseUrl(selected.url),
+    endpointId: coolest.id,
+    baseUrl: normalizeSiteApiEndpointBaseUrl(coolest.url),
     configuredEndpointCount: endpoints.length,
-    endpoint: selected,
+    endpoint: coolest,
   };
 }
 
