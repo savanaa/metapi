@@ -370,6 +370,12 @@ export async function handleOpenAiResponsesSurfaceRequest(
 
       if (!selected) {
         const noChannelMessage = buildForcedChannelUnavailableMessage(forcedChannelId);
+        failureToolkit.flushPendingTokenExpiries();
+        const rateLimitFallback = failureToolkit.consumeRateLimitFallback();
+        if (rateLimitFallback) {
+          await finalizeDebugFailure(rateLimitFallback.status, rateLimitFallback.payload, null);
+          return reply.code(rateLimitFallback.status).send(rateLimitFallback.payload);
+        }
         await reportProxyAllFailed({
           model: requestedModel,
           reason: forcedChannelId ? noChannelMessage : 'No available channels after retries',

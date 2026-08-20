@@ -45,6 +45,13 @@ type SurfaceFailureOutcome =
   | { action: 'retry' }
   | SurfaceFailureResponse;
 
+type SurfacePendingTokenExpiry = {
+  accountId: number;
+  username?: string | null;
+  siteName?: string | null;
+  detail: string;
+};
+
 type SurfaceOauthRefreshSelectedChannel = {
   account: {
     id: number;
@@ -493,6 +500,12 @@ export function createSurfaceFailureToolkit(input: {
   clientContext?: DownstreamClientContext | null;
   downstreamApiKeyId?: number | null;
 }) {
+  // Do not expire an account on the first retryable 401. A later channel may
+  // belong to another account and succeed, which means the failure was local
+  // to the channel/credential that was just tried.
+  const pendingTokenExpiries = new Map<number, SurfacePendingTokenExpiry>();
+  let rateLimitFallback: SurfaceFailureResponse | null = null;
+
   const log = async (args: {
     selected: SurfaceSelectedChannel;
     modelRequested: string;
@@ -553,8 +566,42 @@ export function createSurfaceFailureToolkit(input: {
       });
   };
 
+  const rememberTokenExpiry = (selected: SurfaceSelectedChannel, status: number) => {
+    pendingTokenExpiries.set(selected.account.id, {
+      accountId: selected.account.id,
+      username: selected.account.username,
+      siteName: selected.site.name,
+      detail: `HTTP ${status}`,
+    });
+  };
+
+  const reportTokenExpiry = (selected: SurfaceSelectedChannel, status: number) => {
+    runBestEffort('report token expired', () => reportTokenExpired({
+      accountId: selected.account.id,
+      username: selected.account.username,
+      siteName: selected.site.name,
+      detail: `HTTP ${status}`,
+    }));
+  };
+
+  const flushPendingTokenExpiries = () => {
+    const pending = Array.from(pendingTokenExpiries.values());
+    pendingTokenExpiries.clear();
+    for (const expiry of pending) {
+      runBestEffort('report token expired', () => reportTokenExpired(expiry));
+    }
+  };
+
+  const consumeRateLimitFallback = (): SurfaceFailureResponse | null => {
+    const fallback = rateLimitFallback;
+    rateLimitFallback = null;
+    return fallback;
+  };
+
   return {
     log,
+    flushPendingTokenExpiries,
+    consumeRateLimitFallback,
     async handleUpstreamFailure(args: {
       selected: SurfaceSelectedChannel;
       requestedModel: string;
@@ -590,20 +637,13 @@ export function createSurfaceFailureToolkit(input: {
         errorText: rawErrText,
       }));
 
-      // HTTP 429 is an upstream rate-limit signal, not a channel fault or a
-      // dead credential. Retrying internally only burns attempts and, when no
-      // alternative channel exists, converts a recoverable 429 into a 503 "no
-      // available channels" failure. Surface the 429 to the client so it can
-      // honor Retry-After/backoff itself; the cooldown already marks the channel
-      // so the next attempt routes elsewhere when an alternative becomes
-      // available. This must run before the token-expired classification below,
-      // since upstream 429 bodies can echo prompts that contain "token"/"expired".
+      // HTTP 429 is a rate-limit signal, not a dead credential. The failed
+      // channel has already been cooled down by recordFailure, so retry
+      // selection must get a chance to move to another account immediately.
+      // Keep this before token-expired classification because a 429 body can
+      // echo prompts containing "token"/"expired".
       if (args.status === 429) {
-        runBestEffort('report proxy all failed', () => reportProxyAllFailed({
-          model: args.requestedModel,
-          reason: 'upstream returned HTTP 429',
-        }));
-        return {
+        rateLimitFallback = {
           action: 'respond',
           status: 429,
           payload: {
@@ -613,21 +653,28 @@ export function createSurfaceFailureToolkit(input: {
             },
           },
         };
-      }
-
-      if (isTokenExpiredError({ status: args.status, message: args.errText })) {
-        runBestEffort('report token expired', () => reportTokenExpired({
-          accountId: args.selected.account.id,
-          username: args.selected.account.username,
-          siteName: args.selected.site.name,
-          detail: `HTTP ${args.status}`,
-        }));
-      }
-
-      if (shouldRetryProxyRequest(args.status, args.errText)) {
         const retry = maybeRetry(args.retryCount);
         if (retry) return retry;
+
+        flushPendingTokenExpiries();
+        runBestEffort('report proxy all failed', () => reportProxyAllFailed({
+          model: args.requestedModel,
+          reason: 'upstream returned HTTP 429',
+        }));
+        return rateLimitFallback;
       }
+
+      const tokenExpired = isTokenExpiredError({ status: args.status, message: args.errText });
+      if (shouldRetryProxyRequest(args.status, args.errText)) {
+        const retry = maybeRetry(args.retryCount);
+        if (retry) {
+          if (tokenExpired) rememberTokenExpiry(args.selected, args.status);
+          return retry;
+        }
+      }
+
+      flushPendingTokenExpiries();
+      if (tokenExpired) reportTokenExpiry(args.selected, args.status);
 
       runBestEffort('report proxy all failed', () => reportProxyAllFailed({
         model: args.requestedModel,
@@ -681,10 +728,20 @@ export function createSurfaceFailureToolkit(input: {
         upstreamPath: args.upstreamPath,
       });
 
+      const tokenExpired = isTokenExpiredError({
+        status: args.failure.status,
+        message: args.failure.reason,
+      });
       if (shouldRetryProxyRequest(args.failure.status, args.failure.reason)) {
         const retry = maybeRetry(args.retryCount);
-        if (retry) return retry;
+        if (retry) {
+          if (tokenExpired) rememberTokenExpiry(args.selected, args.failure.status);
+          return retry;
+        }
       }
+
+      flushPendingTokenExpiries();
+      if (tokenExpired) reportTokenExpiry(args.selected, args.failure.status);
 
       runBestEffort('report proxy all failed', () => reportProxyAllFailed({
         model: args.requestedModel,
@@ -732,6 +789,7 @@ export function createSurfaceFailureToolkit(input: {
       const retry = maybeRetry(args.retryCount);
       if (retry) return retry;
 
+      flushPendingTokenExpiries();
       runBestEffort('report proxy all failed', () => reportProxyAllFailed({
         model: args.requestedModel,
         reason: args.errorMessage || 'network failure',
@@ -793,6 +851,7 @@ export function createSurfaceFailureToolkit(input: {
         totalTokens: args.totalTokens,
         upstreamPath: args.upstreamPath,
       });
+      flushPendingTokenExpiries();
     },
   };
 }

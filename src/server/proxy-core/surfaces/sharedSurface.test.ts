@@ -521,7 +521,7 @@ describe('selectSurfaceChannelForAttempt', () => {
     }));
   });
 
-  it('surfaces upstream HTTP 429 rate limits to the client instead of retrying', async () => {
+  it('retries upstream HTTP 429 so a healthy account can take over', async () => {
     composeProxyLogMessageMock.mockReturnValue('normalized error');
     formatUtcSqlDateTimeMock.mockReturnValue('2026-03-21 22:00:00');
     insertProxyLogMock.mockResolvedValue(undefined);
@@ -556,16 +556,7 @@ describe('selectSurfaceChannelForAttempt', () => {
       retryCount: 0,
     });
 
-    expect(result).toEqual({
-      action: 'respond',
-      status: 429,
-      payload: {
-        error: {
-          message: 'quota exceeded',
-          type: 'upstream_error',
-        },
-      },
-    });
+    expect(result).toEqual({ action: 'retry' });
     expect(recordFailureMock).toHaveBeenCalledWith(11, {
       status: 429,
       errorText: '{"error":"quota exceeded"}',
@@ -577,6 +568,7 @@ describe('selectSurfaceChannelForAttempt', () => {
       errorText: '{"error":"quota exceeded"}',
     });
     expect(reportTokenExpiredMock).not.toHaveBeenCalled();
+    expect(reportProxyAllFailedMock).not.toHaveBeenCalled();
     expect(insertProxyLogMock).toHaveBeenCalledWith(expect.objectContaining({
       channelId: 11,
       accountId: 33,
@@ -589,6 +581,123 @@ describe('selectSurfaceChannelForAttempt', () => {
       errorMessage: 'normalized error',
       retryCount: 0,
     }));
+  });
+
+  it('does not expire an account while a retryable 401 can fail over', async () => {
+    composeProxyLogMessageMock.mockReturnValue('normalized error');
+    formatUtcSqlDateTimeMock.mockReturnValue('2026-03-21 22:00:00');
+    insertProxyLogMock.mockResolvedValue(undefined);
+    shouldRetryProxyRequestMock.mockReturnValue(true);
+    isTokenExpiredErrorMock.mockReturnValue(true);
+    recordOauthQuotaResetHintMock.mockResolvedValue(null);
+
+    const { createSurfaceFailureToolkit } = await import('./sharedSurface.js');
+    const toolkit = createSurfaceFailureToolkit({
+      warningScope: 'chat',
+      downstreamPath: '/v1/chat/completions',
+      maxRetries: 2,
+      clientContext: null,
+      downstreamApiKeyId: null,
+    });
+
+    await expect(toolkit.handleUpstreamFailure({
+      selected: {
+        channel: { id: 11, routeId: 22 },
+        account: { id: 33, username: 'account-a' },
+        site: { name: 'TeamoRouter' },
+        actualModel: 'upstream-model',
+      },
+      requestedModel: 'gpt-5.2',
+      modelName: 'upstream-model',
+      status: 401,
+      errText: 'API key is invalid.',
+      rawErrText: '{"type":"authentication_error"}',
+      latencyMs: 500,
+      retryCount: 0,
+    })).resolves.toEqual({ action: 'retry' });
+
+    expect(reportTokenExpiredMock).not.toHaveBeenCalled();
+    expect(reportProxyAllFailedMock).not.toHaveBeenCalled();
+
+    toolkit.flushPendingTokenExpiries();
+    await Promise.resolve();
+    expect(reportTokenExpiredMock).toHaveBeenCalledWith({
+      accountId: 33,
+      username: 'account-a',
+      siteName: 'TeamoRouter',
+      detail: 'HTTP 401',
+    });
+  });
+
+  it('flushes a deferred token alert when a later channel failure ends the request', async () => {
+    composeProxyLogMessageMock.mockReturnValue('normalized error');
+    formatUtcSqlDateTimeMock.mockReturnValue('2026-03-21 22:00:00');
+    insertProxyLogMock.mockResolvedValue(undefined);
+    shouldRetryProxyRequestMock
+      .mockReturnValueOnce(true)
+      .mockReturnValueOnce(false);
+    isTokenExpiredErrorMock
+      .mockReturnValueOnce(true)
+      .mockReturnValueOnce(false);
+    recordOauthQuotaResetHintMock.mockResolvedValue(null);
+
+    const { createSurfaceFailureToolkit } = await import('./sharedSurface.js');
+    const toolkit = createSurfaceFailureToolkit({
+      warningScope: 'chat',
+      downstreamPath: '/v1/chat/completions',
+      maxRetries: 2,
+      clientContext: null,
+      downstreamApiKeyId: null,
+    });
+
+    await expect(toolkit.handleUpstreamFailure({
+      selected: {
+        channel: { id: 11, routeId: 22 },
+        account: { id: 33, username: 'account-a' },
+        site: { name: 'TeamoRouter' },
+        actualModel: 'upstream-model',
+      },
+      requestedModel: 'gpt-5.2',
+      modelName: 'upstream-model',
+      status: 401,
+      errText: 'API key is invalid.',
+      rawErrText: '{"type":"authentication_error"}',
+      latencyMs: 500,
+      retryCount: 0,
+    })).resolves.toEqual({ action: 'retry' });
+
+    await expect(toolkit.handleUpstreamFailure({
+      selected: {
+        channel: { id: 12, routeId: 22 },
+        account: { id: 34, username: 'account-b' },
+        site: { name: 'TeamoRouter' },
+        actualModel: 'upstream-model',
+      },
+      requestedModel: 'gpt-5.2',
+      modelName: 'upstream-model',
+      status: 500,
+      errText: 'upstream unavailable',
+      rawErrText: 'upstream unavailable',
+      latencyMs: 700,
+      retryCount: 1,
+    })).resolves.toEqual({
+      action: 'respond',
+      status: 500,
+      payload: {
+        error: {
+          message: 'upstream unavailable',
+          type: 'upstream_error',
+        },
+      },
+    });
+
+    await Promise.resolve();
+    expect(reportTokenExpiredMock).toHaveBeenCalledWith({
+      accountId: 33,
+      username: 'account-a',
+      siteName: 'TeamoRouter',
+      detail: 'HTTP 401',
+    });
   });
 
   it('keeps retryable failures on the retry path even when quota hint recording fails', async () => {

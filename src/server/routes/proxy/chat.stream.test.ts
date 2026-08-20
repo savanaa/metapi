@@ -346,7 +346,7 @@ describe('chat proxy stream behavior', () => {
     expect(recordFailureMock).toHaveBeenCalledTimes(1);
   });
 
-  it('surfaces upstream HTTP 429 to the client instead of retrying into a 503', async () => {
+  it('tries another channel after upstream HTTP 429 and preserves 429 when none is available', async () => {
     fetchMock.mockResolvedValue(new Response(JSON.stringify({
       error: { message: 'rate limit exceeded' },
     }), {
@@ -367,7 +367,72 @@ describe('chat proxy stream behavior', () => {
     expect(response.json()?.error?.type).toBe('upstream_error');
     expect(response.json()?.error?.message).toContain('rate limit exceeded');
     expect(recordFailureMock).toHaveBeenCalledTimes(1);
-    expect(selectNextChannelMock).not.toHaveBeenCalled();
+    expect(selectNextChannelMock).toHaveBeenCalledWith(
+      'gpt-4o-mini',
+      expect.arrayContaining([11]),
+      expect.anything(),
+    );
+  });
+
+  it('returns success from a healthy second account after the first account is rate limited', async () => {
+    selectNextChannelMock.mockReturnValue({
+      channel: { id: 12, routeId: 22 },
+      site: { name: 'demo-site-2', url: 'https://upstream-2.example.com' },
+      account: { id: 34, username: 'demo-user-2' },
+      tokenName: 'fallback',
+      tokenValue: 'sk-demo-2',
+      actualModel: 'upstream-gpt',
+    });
+    fetchMock
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        error: { message: 'rate limit exceeded' },
+      }), {
+        status: 429,
+        headers: { 'content-type': 'application/json' },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        id: 'chatcmpl-fallback',
+        object: 'chat.completion',
+        created: 1_706_000_000,
+        model: 'upstream-gpt',
+        choices: [{
+          index: 0,
+          message: { role: 'assistant', content: 'hello from account two' },
+          finish_reason: 'stop',
+        }],
+        usage: { prompt_tokens: 4, completion_tokens: 4, total_tokens: 8 },
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }));
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      payload: {
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'user', content: 'hi' }],
+      },
+    });
+
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json()?.choices?.[0]?.message?.content).toBe('hello from account two');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(recordFailureMock).toHaveBeenCalledWith(11, expect.objectContaining({
+      status: 429,
+    }));
+    expect(selectNextChannelMock).toHaveBeenCalledWith(
+      'gpt-4o-mini',
+      expect.arrayContaining([11]),
+      expect.anything(),
+    );
+    expect(reportProxyAllFailedMock).not.toHaveBeenCalled();
+    expect(reportTokenExpiredMock).not.toHaveBeenCalled();
+    const [firstUrl] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [secondUrl, secondInit] = fetchMock.mock.calls[1] as [string, RequestInit];
+    expect(firstUrl).toContain('upstream.example.com');
+    expect(secondUrl).toContain('upstream-2.example.com');
+    expect(secondInit.headers).toEqual(expect.objectContaining({ Authorization: 'Bearer sk-demo-2' }));
   });
 
   it('returns HTTP upstream_error instead of hijacking when streamed chat requests receive empty non-SSE payloads', async () => {
