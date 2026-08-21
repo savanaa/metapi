@@ -160,6 +160,7 @@ export type SortableChannelRowProps = {
   isUpdatingToken: boolean;
   onTokenDraftChange: (channelId: number, tokenId: number) => void;
   onSaveToken: () => void;
+  onSaveWeight?: (weight: number) => void;
   onDeleteChannel: () => void;
   onToggleEnabled: (enabled: boolean) => void;
   onSiteBlockModel?: () => void;

@@ -5,7 +5,7 @@ const routeChannelCreatePayloadSchema = z.object({
   tokenId: z.union([z.number().int().positive(), z.null()]).optional(),
   sourceModel: z.string().optional(),
   priority: z.number().optional(),
-  weight: z.number().optional(),
+  weight: z.number().int().min(0).optional(),
 }).passthrough();
 
 const routeChannelBatchCreatePayloadSchema = z.object({
@@ -20,7 +20,7 @@ const routeChannelUpdatePayloadSchema = z.object({
   tokenId: z.union([z.number().int().positive(), z.null()]).optional(),
   sourceModel: z.union([z.string(), z.null()]).optional(),
   priority: z.number().optional(),
-  weight: z.number().optional(),
+  weight: z.number().int().min(0).optional(),
   enabled: z.boolean().optional(),
 }).passthrough();
 
@@ -117,7 +117,7 @@ function formatTokenRoutePayloadError(error: z.ZodError): string {
     return 'Invalid priority. Expected number.';
   }
   if (firstPath === 'weight') {
-    return 'Invalid weight. Expected number.';
+    return 'Invalid weight. Expected a non-negative integer.';
   }
   if (firstPath === 'refreshModels') {
     return 'Invalid refreshModels. Expected boolean.';

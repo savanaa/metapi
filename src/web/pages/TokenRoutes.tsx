@@ -1123,6 +1123,20 @@ export default function TokenRoutes() {
     }
   };
 
+  const handleChannelWeightSave = async (routeId: number, channelId: number, weight: number) => {
+    if (!Number.isSafeInteger(weight) || weight < 0 || updatingChannel[channelId]) return;
+    setUpdatingChannel((prev) => ({ ...prev, [channelId]: true }));
+    try {
+      await api.updateChannel(channelId, { weight });
+      toast.success('通道权重已更新');
+      await loadChannels(routeId, true);
+    } catch (e: any) {
+      toast.error(e.message || '更新通道权重失败');
+    } finally {
+      setUpdatingChannel((prev) => ({ ...prev, [channelId]: false }));
+    }
+  };
+
   const handleChannelDragEnd = async (routeId: number, event: DragEndEvent) => {
     if (savingPriorityByRoute[routeId]) return;
 
@@ -1461,6 +1475,12 @@ export default function TokenRoutes() {
   handleChannelTokenSaveRef.current = handleChannelTokenSave;
   const stableChannelTokenSave = useCallback(
     (routeId: number, channelId: number, accountId: number) => handleChannelTokenSaveRef.current(routeId, channelId, accountId),
+    [],
+  );
+  const handleChannelWeightSaveRef = useRef(handleChannelWeightSave);
+  handleChannelWeightSaveRef.current = handleChannelWeightSave;
+  const stableChannelWeightSave = useCallback(
+    (routeId: number, channelId: number, weight: number) => handleChannelWeightSaveRef.current(routeId, channelId, weight),
     [],
   );
   const handleDeleteChannelRef = useRef(handleDeleteChannel);
@@ -1854,6 +1874,7 @@ export default function TokenRoutes() {
                     savingPriority={!!savingPriorityByRoute[route.id]}
                     onTokenDraftChange={stableTokenDraftChange}
                     onSaveToken={stableChannelTokenSave}
+                    onSaveWeight={stableChannelWeightSave}
                     onDeleteChannel={stableDeleteChannel}
                     onToggleChannelEnabled={stableToggleChannelEnabled}
                     onChannelDragEnd={stableChannelDragEnd}
@@ -1894,6 +1915,7 @@ export default function TokenRoutes() {
               savingPriority={!!savingPriorityByRoute[route.id]}
               onTokenDraftChange={stableTokenDraftChange}
               onSaveToken={stableChannelTokenSave}
+              onSaveWeight={stableChannelWeightSave}
               onDeleteChannel={stableDeleteChannel}
               onToggleChannelEnabled={stableToggleChannelEnabled}
               onChannelDragEnd={stableChannelDragEnd}
@@ -1933,6 +1955,7 @@ export default function TokenRoutes() {
                   savingPriority={!!savingPriorityByRoute[route.id]}
                   onTokenDraftChange={stableTokenDraftChange}
                   onSaveToken={stableChannelTokenSave}
+                  onSaveWeight={stableChannelWeightSave}
                   onDeleteChannel={stableDeleteChannel}
                   onToggleChannelEnabled={stableToggleChannelEnabled}
                   onChannelDragEnd={stableChannelDragEnd}

@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import ModernSelect from '../../components/ModernSelect.js';
 import type { SortableChannelRowProps } from './types.js';
 import {
@@ -39,6 +39,7 @@ export function SortableChannelRow({
   isUpdatingToken,
   onTokenDraftChange,
   onSaveToken,
+  onSaveWeight,
   onDeleteChannel,
   onToggleEnabled,
   onSiteBlockModel,
@@ -106,6 +107,23 @@ export function SortableChannelRow({
   const routeUnitMemberSummaryText = routeUnitMemberSummary ? `成员：${routeUnitMemberSummary}` : null;
 
   const [mobileDetailsOpen, setMobileDetailsOpen] = useState(false);
+  const [weightDraft, setWeightDraft] = useState(String(Math.max(0, Math.trunc(channel.weight ?? 10))));
+  const [weightError, setWeightError] = useState(false);
+
+  useEffect(() => {
+    setWeightDraft(String(Math.max(0, Math.trunc(channel.weight ?? 10))));
+    setWeightError(false);
+  }, [channel.id, channel.weight]);
+
+  const saveWeight = () => {
+    const parsed = Number(weightDraft);
+    if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed < 0) {
+      setWeightError(true);
+      return;
+    }
+    setWeightError(false);
+    onSaveWeight?.(parsed);
+  };
 
   if (mobile) {
     return (
@@ -149,6 +167,10 @@ export function SortableChannelRow({
                   P{resolvedPriority}
                 </span>
               ) : null}
+
+              <span className="badge badge-muted" style={{ fontSize: 10 }} data-tooltip={suppressTooltips ? undefined : '同一优先级内的软权重，数值越大越容易被选中'}>
+                W{channel.weight ?? 10}
+              </span>
 
               <span style={{ fontWeight: 600, color: 'var(--color-text-primary)', fontSize: 14, minWidth: 0 }}>
                 {channel.account?.username || `account-${channel.accountId}`}
@@ -290,6 +312,28 @@ export function SortableChannelRow({
 
             {!managementLocked && mobileDetailsOpen && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingTop: 6, borderTop: '1px solid var(--color-border-light)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <label htmlFor={`channel-weight-${channel.id}`} style={{ fontSize: 11, color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
+                    通道权重
+                  </label>
+                  <input
+                    id={`channel-weight-${channel.id}`}
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={weightDraft}
+                    onChange={(event) => { setWeightDraft(event.currentTarget.value); setWeightError(false); }}
+                    disabled={isUpdatingToken}
+                    aria-invalid={weightError}
+                    style={{ width: 88, padding: '5px 7px', border: `1px solid ${weightError ? 'var(--color-danger)' : 'var(--color-border-light)'}`, borderRadius: 8, background: 'var(--color-bg-card)', color: 'var(--color-text-primary)' }}
+                  />
+                  <span style={{ fontSize: 10.5, color: weightError ? 'var(--color-danger)' : 'var(--color-text-muted)' }}>
+                    {weightError ? '请输入非负整数' : '同一 P 桶内生效'}
+                  </span>
+                  <button type="button" onClick={saveWeight} disabled={isUpdatingToken} className="btn btn-link btn-link-info">
+                    保存
+                  </button>
+                </div>
                 <div style={{ width: '100%' }}>
                   <ModernSelect
                     size="sm"
@@ -391,6 +435,10 @@ export function SortableChannelRow({
             P{resolvedPriority}
           </span>
         ) : null}
+
+        <span className="badge badge-muted" style={{ fontSize: 10 }} data-tooltip={suppressTooltips ? undefined : '同一优先级内的软权重，数值越大越容易被选中'}>
+          W{channel.weight ?? 10}
+        </span>
 
         <span style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>
           {channel.account?.username || `account-${channel.accountId}`}
@@ -525,6 +573,31 @@ export function SortableChannelRow({
       {!managementLocked ? (
         <>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ width: 104, flexShrink: 0 }}>
+              <label htmlFor={`channel-weight-${channel.id}`} style={{ display: 'block', fontSize: 10.5, color: 'var(--color-text-muted)', marginBottom: 3 }}>
+                通道权重
+              </label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <input
+                  id={`channel-weight-${channel.id}`}
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={weightDraft}
+                  onChange={(event) => { setWeightDraft(event.currentTarget.value); setWeightError(false); }}
+                  disabled={isUpdatingToken}
+                  aria-invalid={weightError}
+                  data-testid="channel-weight-input"
+                  style={{ width: 72, padding: '5px 7px', border: `1px solid ${weightError ? 'var(--color-danger)' : 'var(--color-border-light)'}`, borderRadius: 8, background: 'var(--color-bg-card)', color: 'var(--color-text-primary)' }}
+                />
+                <button type="button" onClick={saveWeight} disabled={isUpdatingToken} className="btn btn-link btn-link-info" data-testid="channel-weight-save">
+                  保存
+                </button>
+              </div>
+              <div style={{ marginTop: 3, fontSize: 10, color: weightError ? 'var(--color-danger)' : 'var(--color-text-muted)', lineHeight: 1.25 }}>
+                {weightError ? '请输入非负整数' : '同一 P 桶内生效'}
+              </div>
+            </div>
             <div style={{ minWidth: 220, flex: 1 }}>
               <ModernSelect
                 size="sm"

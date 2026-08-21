@@ -85,6 +85,7 @@ type RouteCardProps = {
   savingPriority: boolean;
   onTokenDraftChange: (channelId: number, tokenId: number) => void;
   onSaveToken: (routeId: number, channelId: number, accountId: number) => void;
+  onSaveWeight?: (routeId: number, channelId: number, weight: number) => void;
   onDeleteChannel: (channelId: number, routeId: number) => void;
   onToggleChannelEnabled: (channelId: number, routeId: number, enabled: boolean) => void;
   onChannelDragEnd: (routeId: number, event: DragEndEvent) => void;
@@ -371,6 +372,7 @@ type SortableChannelShellProps = {
   routeId: number;
   onTokenDraftChange: (channelId: number, tokenId: number) => void;
   onSaveToken: (routeId: number, channelId: number, accountId: number) => void;
+  onSaveWeight?: (routeId: number, channelId: number, weight: number) => void;
   onDeleteChannel: (channelId: number, routeId: number) => void;
   onToggleChannelEnabled: (channelId: number, routeId: number, enabled: boolean) => void;
   onSiteBlockModel: (channelId: number, routeId: number) => void;
@@ -401,6 +403,7 @@ function SortableChannelShell({
   routeId,
   onTokenDraftChange,
   onSaveToken,
+  onSaveWeight,
   onDeleteChannel,
   onToggleChannelEnabled,
   onSiteBlockModel,
@@ -525,6 +528,7 @@ function SortableChannelShell({
         isUpdatingToken={!!updatingChannel[channel.id]}
         onTokenDraftChange={onTokenDraftChange}
         onSaveToken={() => onSaveToken(routeId, channel.id, channel.accountId)}
+        onSaveWeight={onSaveWeight ? (weight) => onSaveWeight(routeId, channel.id, weight) : undefined}
         onDeleteChannel={() => onDeleteChannel(channel.id, routeId)}
         onToggleEnabled={(enabled) => onToggleChannelEnabled(channel.id, routeId, enabled)}
         onSiteBlockModel={channelManagementDisabled ? undefined : () => onSiteBlockModel(channel.id, routeId)}
@@ -558,6 +562,7 @@ function RouteCardInner({
   savingPriority,
   onTokenDraftChange,
   onSaveToken,
+  onSaveWeight,
   onDeleteChannel,
   onToggleChannelEnabled,
   onChannelDragEnd,
@@ -1209,6 +1214,7 @@ function RouteCardInner({
                             routeId={route.id}
                             onTokenDraftChange={onTokenDraftChange}
                             onSaveToken={onSaveToken}
+                            onSaveWeight={onSaveWeight}
                             onDeleteChannel={onDeleteChannel}
                             onToggleChannelEnabled={onToggleChannelEnabled}
                             onSiteBlockModel={onSiteBlockModel}
@@ -1291,6 +1297,7 @@ function areRouteCardPropsEqual(prev: RouteCardProps, next: RouteCardProps): boo
     || prev.onRoutingStrategyChange !== next.onRoutingStrategyChange
     || prev.onTokenDraftChange !== next.onTokenDraftChange
     || prev.onSaveToken !== next.onSaveToken
+    || prev.onSaveWeight !== next.onSaveWeight
     || prev.onDeleteChannel !== next.onDeleteChannel
     || prev.onToggleChannelEnabled !== next.onToggleChannelEnabled
     || prev.onChannelDragEnd !== next.onChannelDragEnd
