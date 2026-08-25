@@ -9,6 +9,7 @@ import {
 } from './upstreamEndpointRuntime.js';
 import { executeEndpointFlow, type BuiltEndpointRequest } from '../proxy-core/orchestration/endpointFlow.js';
 import type { schema } from '../db/index.js';
+import { resolveSiteApiBaseUrl } from './siteApiEndpointService.js';
 
 export type RuntimeModelProbeStatus = 'supported' | 'unsupported' | 'inconclusive' | 'skipped';
 
@@ -16,6 +17,8 @@ export type RuntimeModelProbeResult = {
   status: RuntimeModelProbeStatus;
   latencyMs: number | null;
   reason: string;
+  path?: string;
+  statusCode?: number | null;
 };
 
 const NON_CONVERSATION_MODEL_PATTERNS = [
@@ -101,6 +104,8 @@ export async function probeRuntimeModel(input: {
   modelName: string;
   timeoutMs: number;
   tokenValue?: string | null;
+  /** Use a selected API endpoint for diagnostics or endpoint-aware probes. */
+  targetBaseUrl?: string | null;
 }): Promise<RuntimeModelProbeResult> {
   if (!isLikelyConversationModel(input.modelName)) {
     return {
@@ -127,6 +132,19 @@ export async function probeRuntimeModel(input: {
   const startedAt = Date.now();
   const deadlineAtMs = startedAt + Math.max(1, input.timeoutMs);
   try {
+    const probeDownstreamFormat = String(input.site.platform || '').trim().toLowerCase() === 'claude'
+      ? 'claude' as const
+      : 'openai' as const;
+    const targetBaseUrl = String(
+      input.targetBaseUrl || await resolveSiteApiBaseUrl(input.site),
+    ).trim().replace(/\/+$/, '');
+    if (!targetBaseUrl) {
+      return {
+        status: 'inconclusive',
+        latencyMs: Date.now() - startedAt,
+        reason: 'no usable API endpoint base URL',
+      };
+    }
     const endpointCandidates = await withTimeout(
       () => resolveUpstreamEndpointCandidates(
         {
@@ -134,7 +152,7 @@ export async function probeRuntimeModel(input: {
           account: input.account,
         },
         input.modelName,
-        'openai',
+        probeDownstreamFormat,
         input.modelName,
       ),
       resolveRemainingTimeoutMs(
@@ -166,6 +184,7 @@ export async function probeRuntimeModel(input: {
       abortController.abort(new Error(`runtime model probe timeout (${Math.round(input.timeoutMs / 1000)}s)`));
     }, remainingExecutionTimeoutMs);
     abortTimer.unref?.();
+    let lastRequestPath: string | undefined;
 
     const buildRequest = (endpoint: UpstreamEndpoint): BuiltEndpointRequest => {
       const request = buildUpstreamEndpointRequest({
@@ -178,10 +197,11 @@ export async function probeRuntimeModel(input: {
         sitePlatform: input.site.platform,
         siteUrl: input.site.url,
         openaiBody,
-        downstreamFormat: 'openai',
+        downstreamFormat: probeDownstreamFormat,
         downstreamHeaders: {},
         providerHeaders,
       });
+      lastRequestPath = request.path;
       return {
         endpoint,
         path: request.path,
@@ -214,7 +234,7 @@ export async function probeRuntimeModel(input: {
     let result: Awaited<ReturnType<typeof executeEndpointFlow>>;
     try {
       result = await executeEndpointFlow({
-        siteUrl: input.site.url,
+        siteUrl: targetBaseUrl,
         proxyUrl: channelProxyUrl,
         endpointCandidates,
         buildRequest,
@@ -231,6 +251,8 @@ export async function probeRuntimeModel(input: {
         status: 'supported',
         latencyMs,
         reason: 'probe succeeded',
+        path: result.upstreamPath,
+        statusCode: result.upstream.status,
       };
     }
 
@@ -239,6 +261,8 @@ export async function probeRuntimeModel(input: {
       status: classifyUnsupportedFailure(result.status || 0, rawErrorText) ? 'unsupported' : 'inconclusive',
       latencyMs,
       reason: rawErrorText || `probe failed with status ${result.status || 0}`,
+      path: lastRequestPath,
+      statusCode: result.status || null,
     };
   } catch (error) {
     return {

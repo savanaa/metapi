@@ -27,6 +27,7 @@ describe('rebuildTokenRoutesFromAvailability', () => {
   });
 
   beforeEach(async () => {
+    await db.delete(schema.routeGroupSources).run();
     await db.delete(schema.routeChannels).run();
     await db.delete(schema.tokenRoutes).run();
     await db.delete(schema.tokenModelAvailability).run();
@@ -331,5 +332,88 @@ describe('rebuildTokenRoutesFromAvailability', () => {
 
     const wildcardRouteAfter = await db.select().from(schema.tokenRoutes).where(eq(schema.tokenRoutes.id, wildcardRoute.id)).get();
     expect(wildcardRouteAfter).toBeDefined();
+  });
+
+  it('keeps stale exact routes referenced by explicit groups and restores their channels', async () => {
+    const site = await db.insert(schema.sites).values({
+      name: 'group-source-site',
+      url: 'https://group-source-site.example.com',
+      platform: 'new-api',
+    }).returning().get();
+
+    const account = await db.insert(schema.accounts).values({
+      siteId: site.id,
+      username: 'group-source-user',
+      accessToken: '',
+      apiToken: 'sk-group-source',
+      status: 'active',
+      extraConfig: JSON.stringify({ credentialMode: 'apikey' }),
+    }).returning().get();
+
+    await db.insert(schema.modelAvailability).values({
+      accountId: account.id,
+      modelName: 'deepseek-v4-flash',
+      available: true,
+    }).run();
+
+    const sourceRoute = await db.insert(schema.tokenRoutes).values({
+      modelPattern: 'deepseek-v4-flash',
+      enabled: true,
+    }).returning().get();
+    const groupRoute = await db.insert(schema.tokenRoutes).values({
+      modelPattern: 'deepseek-v4-flash',
+      displayName: 'deepseek-v4-flash',
+      routeMode: 'explicit_group',
+      enabled: true,
+    }).returning().get();
+    await db.insert(schema.routeGroupSources).values({
+      groupRouteId: groupRoute.id,
+      sourceRouteId: sourceRoute.id,
+    }).run();
+    await db.insert(schema.routeChannels).values({
+      routeId: sourceRoute.id,
+      accountId: account.id,
+      priority: 0,
+      weight: 10,
+      enabled: true,
+      manualOverride: false,
+    }).run();
+
+    await rebuildTokenRoutesFromAvailability();
+
+    await db.update(schema.modelAvailability)
+      .set({ available: false })
+      .where(eq(schema.modelAvailability.accountId, account.id))
+      .run();
+    const unavailableRebuild = await rebuildTokenRoutesFromAvailability();
+
+    expect(unavailableRebuild.removedRoutes).toBe(0);
+    const retainedSourceRoute = await db.select().from(schema.tokenRoutes)
+      .where(eq(schema.tokenRoutes.id, sourceRoute.id))
+      .get();
+    expect(retainedSourceRoute).toBeDefined();
+    expect(await db.select().from(schema.routeChannels)
+      .where(eq(schema.routeChannels.routeId, sourceRoute.id))
+      .all()).toHaveLength(0);
+    expect(await db.select().from(schema.routeGroupSources)
+      .where(eq(schema.routeGroupSources.groupRouteId, groupRoute.id))
+      .all()).toHaveLength(1);
+
+    await db.update(schema.modelAvailability)
+      .set({ available: true })
+      .where(eq(schema.modelAvailability.accountId, account.id))
+      .run();
+    await rebuildTokenRoutesFromAvailability();
+
+    const restoredSourceRoute = await db.select().from(schema.tokenRoutes)
+      .where(eq(schema.tokenRoutes.id, sourceRoute.id))
+      .get();
+    expect(restoredSourceRoute).toBeDefined();
+    expect(await db.select().from(schema.routeChannels)
+      .where(eq(schema.routeChannels.routeId, sourceRoute.id))
+      .all()).toHaveLength(1);
+    expect(await db.select().from(schema.routeGroupSources)
+      .where(eq(schema.routeGroupSources.groupRouteId, groupRoute.id))
+      .all()).toHaveLength(1);
   });
 });

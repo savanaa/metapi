@@ -47,17 +47,25 @@ export function buildVisibleRouteList<T extends RouteListVisibilityItem>(
   return routes.filter((route) => {
     if (isExplicitGroupRoute(route)) return true;
     if (!isExactModelPattern(route.modelPattern)) return true;
-    if (hasCustomDisplayName(route)) return true;
 
     const exactModel = (route.modelPattern || '').trim();
     if (!exactModel) return true;
 
+    const explicitlyReferenced = coveringGroups.some((groupRoute) => (
+      groupRoute.id !== route.id
+      && isExplicitGroupRoute(groupRoute)
+      && (groupRoute.sourceRouteIds || []).includes(route.id)
+    ));
+    if (explicitlyReferenced) return false;
+
+    if (hasCustomDisplayName(route)) return true;
+
     return !coveringGroups.some((groupRoute) => (
       groupRoute.id !== route.id
-      && !exactModelNames.has((groupRoute.displayName || '').trim())
       && (
-        (isExplicitGroupRoute(groupRoute) && (groupRoute.sourceRouteIds || []).includes(route.id))
-        || (!isExplicitGroupRoute(groupRoute) && matchesModelPattern(exactModel, groupRoute.modelPattern))
+        !isExplicitGroupRoute(groupRoute)
+        && !exactModelNames.has((groupRoute.displayName || '').trim())
+        && matchesModelPattern(exactModel, groupRoute.modelPattern)
       )
     ));
   });

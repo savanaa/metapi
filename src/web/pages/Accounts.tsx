@@ -81,6 +81,7 @@ function createTokenForm(credentialMode: "session" | "apikey" = "session") {
     siteId: 0,
     username: "",
     accessToken: "",
+    probeModel: "",
     platformUserId: "",
     refreshToken: "",
     tokenExpiresAt: "",
@@ -131,6 +132,8 @@ export default function Accounts() {
   const [applyCreatePresetModels, setApplyCreatePresetModels] = useState(false);
   const [verifyResult, setVerifyResult] = useState<any>(null);
   const [verifying, setVerifying] = useState(false);
+  const [modelTesting, setModelTesting] = useState(false);
+  const [modelTestResult, setModelTestResult] = useState<any>(null);
   const [saving, setSaving] = useState(false);
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>(
     {},
@@ -268,6 +271,7 @@ export default function Accounts() {
     setCreateIntentPresetId(null);
     setApplyCreatePresetModels(false);
     setVerifyResult(null);
+    setModelTestResult(null);
   };
 
   const closeAddPanel = () => {
@@ -445,6 +449,38 @@ export default function Accounts() {
       setVerifyResult({ success: false, message: e?.message });
     } finally {
       setVerifying(false);
+    }
+  };
+
+  const handleTestModel = async () => {
+    const modelName = tokenForm.probeModel?.trim() || '';
+    if (!tokenForm.siteId || !tokenForm.accessToken.trim() || !modelName) {
+      toast.info('请填写 API Key、站点和要测试的模型名称');
+      return;
+    }
+    if (isBatchApiKeyInput) {
+      toast.info('批量 API Key 请先单独粘贴一个 Key，再测试模型请求');
+      return;
+    }
+    setModelTesting(true);
+    setModelTestResult(null);
+    try {
+      const result = await api.testSiteModel(tokenForm.siteId, {
+        token: tokenForm.accessToken.trim(),
+        modelName,
+      });
+      setModelTestResult(result);
+      if (result.success) {
+        toast.success('模型请求测试成功');
+      } else {
+        toast.error('模型请求测试失败，请查看各 API 地址的具体结果');
+      }
+    } catch (error: any) {
+      const result = { success: false, tests: [], message: error?.message || '模型请求测试失败' };
+      setModelTestResult(result);
+      toast.error(result.message);
+    } finally {
+      setModelTesting(false);
     }
   };
 
@@ -2176,6 +2212,52 @@ export default function Accounts() {
                     resize: "none" as const,
                   }}
                 />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={{ display: 'flex', gap: 8, flexDirection: isMobile ? 'column' : 'row' }}>
+                    <input
+                      placeholder="模型名称（可选，如 deepseek/deepseek-v4-flash）"
+                      value={tokenForm.probeModel || ''}
+                      onChange={(e) => {
+                        setTokenForm((f) => ({ ...f, probeModel: e.target.value }));
+                        setModelTestResult(null);
+                      }}
+                      style={{ ...inputStyle, flex: 1, fontFamily: 'var(--font-mono)' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleTestModel}
+                      disabled={modelTesting || !tokenForm.siteId || !tokenForm.accessToken.trim() || !tokenForm.probeModel?.trim() || isBatchApiKeyInput}
+                      className="btn btn-ghost"
+                      style={{ border: '1px solid var(--color-border)', whiteSpace: 'nowrap' }}
+                    >
+                      {modelTesting ? <><span className="spinner spinner-sm" /> 测试中...</> : '测试模型请求'}
+                    </button>
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--color-text-muted)', lineHeight: 1.6 }}>
+                    这会使用当前 API Key 对每个启用的 API 地址发送一次最小非流式请求，不会创建账号，也不会改变地址冷却状态。
+                  </div>
+                </div>
+                {modelTestResult && (
+                  <div className={`alert ${modelTestResult.success ? 'alert-success' : 'alert-error'} animate-scale-in`}>
+                    <div className="alert-title">
+                      {modelTestResult.success ? '模型请求成功' : '模型请求失败'}
+                      {modelTestResult.modelName ? ` · ${modelTestResult.modelName}` : ''}
+                      {modelTestResult.actualModelName && modelTestResult.actualModelName !== modelTestResult.modelName
+                        ? ` -> ${modelTestResult.actualModelName}`
+                        : ''}
+                    </div>
+                    {Array.isArray(modelTestResult.tests) && modelTestResult.tests.map((test: any) => (
+                      <div key={`${test.endpointId || 'site'}-${test.endpointUrl}`} style={{ fontSize: 12, lineHeight: 1.8, marginTop: 6 }}>
+                        <div><strong>{test.success ? '通过' : test.status === 'skipped' ? '跳过' : '失败'}</strong> · <span style={{ fontFamily: 'var(--font-mono)' }}>{test.endpointUrl}</span></div>
+                        <div>路径：<code>{test.path || '未发送'}</code>{test.statusCode ? ` · HTTP ${test.statusCode}` : ''}{test.latencyMs != null ? ` · ${test.latencyMs}ms` : ''}</div>
+                        <div style={{ color: test.success ? 'var(--color-text-muted)' : 'var(--color-danger)' }}>{test.message}</div>
+                      </div>
+                    ))}
+                    {modelTestResult.message && !modelTestResult.tests?.length && (
+                      <div style={{ fontSize: 12, marginTop: 6 }}>{modelTestResult.message}</div>
+                    )}
+                  </div>
+                )}
                 {parsedApiKeys.length > 0 && (
                   <div
                     style={{ fontSize: 12, color: "var(--color-text-muted)" }}

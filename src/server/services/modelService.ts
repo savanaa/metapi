@@ -1441,6 +1441,12 @@ export async function rebuildTokenRoutesFromAvailability() {
 
   const routes = await db.select().from(schema.tokenRoutes).all();
   const channels = await db.select().from(schema.routeChannels).all();
+  const referencedSourceRouteIds = new Set(
+    (await db.select({ sourceRouteId: schema.routeGroupSources.sourceRouteId })
+      .from(schema.routeGroupSources)
+      .all())
+      .map((row) => row.sourceRouteId),
+  );
 
   let createdRoutes = 0;
   let createdChannels = 0;
@@ -1524,6 +1530,18 @@ export async function rebuildTokenRoutesFromAvailability() {
     }
 
     const routeChannelCount = channels.filter((channel) => channel.routeId === route.id).length;
+
+    if (referencedSourceRouteIds.has(route.id)) {
+      for (const channel of channels.filter((item) => item.routeId === route.id)) {
+        if (channel.manualOverride) continue;
+        const deleted = (await db.delete(schema.routeChannels)
+          .where(eq(schema.routeChannels.id, channel.id))
+          .run()).changes;
+        if (deleted > 0) removedChannels++;
+      }
+      continue;
+    }
+
     if (routeChannelCount > 0) {
       removedChannels += routeChannelCount;
     }

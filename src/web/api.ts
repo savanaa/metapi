@@ -801,6 +801,12 @@ export const api = {
       body: JSON.stringify(options || {}),
       timeoutMs: options?.scope === 'all' ? 120_000 : 30_000,
     }),
+  testSiteModel: (siteId: number, data: { token: string; modelName: string; endpointId?: number; timeoutMs?: number }) =>
+    request(`/api/sites/${siteId}/test-model`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+      timeoutMs: Math.max(30_000, (data.timeoutMs || 15_000) + 5_000),
+    }),
 
   // Accounts
   getAccounts: async (params?: { includeOauth?: boolean }) => {

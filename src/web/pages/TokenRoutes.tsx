@@ -72,6 +72,7 @@ const EMPTY_ROUTE_CANDIDATE_VIEW: RouteCandidateView = {
 };
 const EMPTY_MISSING_ITEMS: MissingTokenRouteSiteActionItem[] = [];
 const EMPTY_MISSING_GROUP_ITEMS: MissingTokenGroupRouteSiteActionItem[] = [];
+const EMPTY_SOURCE_ROUTES: RouteSummaryRow[] = [];
 const ROUTE_ICON_OPTIONS: RouteIconOption[] = [
   { value: '', label: '自动品牌图标', description: '按模型匹配规则自动识别品牌', iconText: '✦' },
 ];
@@ -208,6 +209,7 @@ export default function TokenRoutes() {
   const [selectedRouteIds, setSelectedRouteIds] = useState<Set<number>>(new Set());
 
   const [channelTokenDraft, setChannelTokenDraft] = useState<Record<number, number>>({});
+  const [channelConfigOpenById, setChannelConfigOpenById] = useState<Record<number, boolean>>({});
   const [updatingChannel, setUpdatingChannel] = useState<Record<number, boolean>>({});
   const [savingPriorityByRoute, setSavingPriorityByRoute] = useState<Record<number, boolean>>({});
   const [updatingRoutingStrategyByRoute, setUpdatingRoutingStrategyByRoute] = useState<Record<number, boolean>>({});
@@ -221,6 +223,7 @@ export default function TokenRoutes() {
   const [expandedRouteIds, setExpandedRouteIds] = useState<number[]>([]);
   const [closingDesktopDetailRouteIds, setClosingDesktopDetailRouteIds] = useState<number[]>([]);
   const [addChannelModalRouteId, setAddChannelModalRouteId] = useState<number | null>(null);
+  const [addChannelModalDisplayRouteId, setAddChannelModalDisplayRouteId] = useState<number | null>(null);
   const isMobile = useIsMobile();
   const desktopDetailCloseTimersRef = useRef<Record<number, ReturnType<typeof globalThis.setTimeout>>>({});
 
@@ -971,6 +974,13 @@ export default function TokenRoutes() {
     return view;
   };
 
+  const getRouteCandidateViewRef = useRef(getRouteCandidateView);
+  getRouteCandidateViewRef.current = getRouteCandidateView;
+  const stableGetRouteCandidateView = useCallback(
+    (routeId: number) => getRouteCandidateViewRef.current(routeId),
+    [],
+  );
+
   // Lazy per-route missing token index
   const missingTokenCacheRef = useRef<{ key: string; cache: Map<number, RouteMissingTokenHint[]> }>({ key: '', cache: new Map() });
   const missingTokenCacheKey = `${routePatternsKey}|${Object.keys(missingTokenModelsByName).length}|${candidatesVersionRef.current}`;
@@ -1030,6 +1040,33 @@ export default function TokenRoutes() {
     [visibleRouteRows],
   );
 
+  const sourceRoutesByGroupId = useMemo(() => {
+    const routesById = new Map(routeSummaries.map((route) => [route.id, route]));
+    const result = new Map<number, RouteSummaryRow[]>();
+    for (const route of routeSummaries) {
+      if (!isExplicitGroupRoute(route)) continue;
+      const sources = (route.sourceRouteIds || [])
+        .map((sourceRouteId) => routesById.get(sourceRouteId))
+        .filter((sourceRoute): sourceRoute is RouteSummaryRow => !!sourceRoute && isRouteExactModel(sourceRoute));
+      result.set(route.id, sources);
+    }
+    return result;
+  }, [routeSummaries]);
+
+  const getChannelViewRouteIds = (routeId: number): number[] => {
+    const relatedRouteIds = new Set<number>([routeId]);
+    for (const route of routeSummaries) {
+      if (isExplicitGroupRoute(route) && (route.sourceRouteIds || []).includes(routeId)) {
+        relatedRouteIds.add(route.id);
+      }
+    }
+    return Array.from(relatedRouteIds);
+  };
+
+  const refreshChannelViews = async (routeId: number) => {
+    await Promise.all(getChannelViewRouteIds(routeId).map((id) => loadChannels(id, true)));
+  };
+
   const handleCreateTokenForMissingAccount = (accountId: number, modelName: string) => {
     if (!Number.isFinite(accountId) || accountId <= 0) return;
     const params = new URLSearchParams();
@@ -1079,10 +1116,13 @@ export default function TokenRoutes() {
     try {
       await api.deleteChannel(channelId);
       toast.success('通道已移除');
-      await loadChannels(routeId, true);
-      setRouteSummaries((prev) =>
-        prev.map((r) => r.id === routeId ? { ...r, channelCount: Math.max(0, r.channelCount - 1) } : r),
-      );
+      const affectedRouteIds = getChannelViewRouteIds(routeId);
+      await refreshChannelViews(routeId);
+      setRouteSummaries((prev) => prev.map((r) => (
+        affectedRouteIds.includes(r.id)
+          ? { ...r, channelCount: Math.max(0, r.channelCount - 1) }
+          : r
+      )));
     } catch (e: any) {
       toast.error(e.message || '移除通道失败');
     }
@@ -1094,7 +1134,7 @@ export default function TokenRoutes() {
     try {
       await api.updateChannel(channelId, { enabled });
       toast.success(enabled ? '通道已启用' : '通道已禁用');
-      await loadChannels(routeId, true);
+      await refreshChannelViews(routeId);
     } catch (e: any) {
       toast.error(e.message || '更新通道状态失败');
     } finally {
@@ -1115,7 +1155,7 @@ export default function TokenRoutes() {
     try {
       await api.updateChannel(channelId, { tokenId: tokenId || null });
       toast.success('通道令牌已更新');
-      await loadChannels(routeId, true);
+      await refreshChannelViews(routeId);
     } catch (e: any) {
       toast.error(e.message || '更新令牌失败');
     } finally {
@@ -1129,7 +1169,7 @@ export default function TokenRoutes() {
     try {
       await api.updateChannel(channelId, { weight });
       toast.success('通道权重已更新');
-      await loadChannels(routeId, true);
+      await refreshChannelViews(routeId);
     } catch (e: any) {
       toast.error(e.message || '更新通道权重失败');
     } finally {
@@ -1200,6 +1240,15 @@ export default function TokenRoutes() {
           priority: channel.priority,
         })),
       );
+
+      const refreshedRouteIds = isExplicitGroupRoute(route)
+        ? Array.from(new Set(
+          changedChannels
+            .map((channel) => channel.routeId)
+            .filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0),
+        ))
+        : [routeId];
+      await Promise.all(refreshedRouteIds.map((sourceRouteId) => refreshChannelViews(sourceRouteId)));
 
       if (route && isRouteExactModel(route)) {
         try {
@@ -1463,9 +1512,14 @@ export default function TokenRoutes() {
     (channelId: number, tokenId: number) => setChannelTokenDraft((prev) => ({ ...prev, [channelId]: tokenId })),
     [],
   );
-  const stableAddChannel = useCallback((routeId: number) => {
+  const stableToggleChannelConfig = useCallback(
+    (channelId: number) => setChannelConfigOpenById((prev) => ({ ...prev, [channelId]: !prev[channelId] })),
+    [],
+  );
+  const stableAddChannel = useCallback((routeId: number, sourceRouteId?: number) => {
     loadCandidates();
-    setAddChannelModalRouteId(routeId);
+    setAddChannelModalRouteId(sourceRouteId ?? routeId);
+    setAddChannelModalDisplayRouteId(routeId);
   }, []);
   const stableToggleSourceGroup = useCallback(
     (groupKey: string) => setExpandedSourceGroupMap((prev) => ({ ...prev, [groupKey]: !prev[groupKey] })),
@@ -1523,11 +1577,13 @@ export default function TokenRoutes() {
   const addChannelModalRoute = addChannelModalRouteId
     ? routeSummaries.find((r) => r.id === addChannelModalRouteId) || null
     : null;
+  const addChannelModalDisplayRoute = addChannelModalDisplayRouteId
+    ? routeSummaries.find((r) => r.id === addChannelModalDisplayRouteId) || null
+    : null;
 
   const handleAddChannelSuccess = async () => {
     if (!addChannelModalRouteId) return;
-    // Reload channels for this route
-    await loadChannels(addChannelModalRouteId, true);
+    await refreshChannelViews(addChannelModalRouteId);
     // Refresh summary to update channel count
     await load();
   };
@@ -1882,6 +1938,10 @@ export default function TokenRoutes() {
                     missingTokenGroupItems={getMissingTokenGroupItems(route.id)}
                     onCreateTokenForMissing={stableCreateTokenForMissing}
                     onAddChannel={stableAddChannel}
+                    sourceRoutes={sourceRoutesByGroupId.get(route.id) || EMPTY_SOURCE_ROUTES}
+                    getCandidateViewForRoute={stableGetRouteCandidateView}
+                    channelConfigOpenById={channelConfigOpenById}
+                    onToggleChannelConfig={stableToggleChannelConfig}
                     onSiteBlockModel={stableSiteBlockModel}
                     expandedSourceGroupMap={expandedSourceGroupMap}
                     onToggleSourceGroup={stableToggleSourceGroup}
@@ -1923,6 +1983,10 @@ export default function TokenRoutes() {
               missingTokenGroupItems={EMPTY_MISSING_GROUP_ITEMS}
               onCreateTokenForMissing={stableCreateTokenForMissing}
               onAddChannel={stableAddChannel}
+              sourceRoutes={sourceRoutesByGroupId.get(route.id) || EMPTY_SOURCE_ROUTES}
+              getCandidateViewForRoute={stableGetRouteCandidateView}
+              channelConfigOpenById={channelConfigOpenById}
+              onToggleChannelConfig={stableToggleChannelConfig}
               onSiteBlockModel={stableSiteBlockModel}
               expandedSourceGroupMap={expandedSourceGroupMap}
               onToggleSourceGroup={stableToggleSourceGroup}
@@ -1963,6 +2027,10 @@ export default function TokenRoutes() {
                   missingTokenGroupItems={getMissingTokenGroupItems(route.id)}
                   onCreateTokenForMissing={stableCreateTokenForMissing}
                   onAddChannel={stableAddChannel}
+                  sourceRoutes={sourceRoutesByGroupId.get(route.id) || EMPTY_SOURCE_ROUTES}
+                  getCandidateViewForRoute={stableGetRouteCandidateView}
+                  channelConfigOpenById={channelConfigOpenById}
+                  onToggleChannelConfig={stableToggleChannelConfig}
                   onSiteBlockModel={stableSiteBlockModel}
                   expandedSourceGroupMap={expandedSourceGroupMap}
                   onToggleSourceGroup={stableToggleSourceGroup}
@@ -2049,10 +2117,15 @@ export default function TokenRoutes() {
       {addChannelModalRoute && (
         <AddChannelModal
           open={!!addChannelModalRouteId}
-          onClose={() => setAddChannelModalRouteId(null)}
+          onClose={() => {
+            setAddChannelModalRouteId(null);
+            setAddChannelModalDisplayRouteId(null);
+          }}
           routeId={addChannelModalRoute.id}
-          routeTitle={resolveRouteTitle(addChannelModalRoute)}
-          candidateView={getRouteCandidateView(addChannelModalRoute.id)}
+          routeTitle={addChannelModalDisplayRoute && addChannelModalDisplayRoute.id !== addChannelModalRoute.id
+            ? `${resolveRouteTitle(addChannelModalDisplayRoute)} / ${resolveRouteTitle(addChannelModalRoute)}`
+            : resolveRouteTitle(addChannelModalRoute)}
+          candidateView={stableGetRouteCandidateView(addChannelModalRoute.id)}
           onSuccess={handleAddChannelSuccess}
           missingTokenHints={getRouteMissingTokenHints(addChannelModalRoute.id)}
           onCreateTokenForMissing={handleCreateTokenForMissingAccount}

@@ -43,6 +43,8 @@ export function SortableChannelRow({
   onDeleteChannel,
   onToggleEnabled,
   onSiteBlockModel,
+  channelConfigOpen,
+  onToggleChannelConfig,
 }: SortableChannelRowProps) {
   const resolvedPriority = displayPriority ?? channel.priority ?? 0;
   const managementLocked = readOnly || channelManagementDisabled;
@@ -106,7 +108,8 @@ export function SortableChannelRow({
     : null;
   const routeUnitMemberSummaryText = routeUnitMemberSummary ? `成员：${routeUnitMemberSummary}` : null;
 
-  const [mobileDetailsOpen, setMobileDetailsOpen] = useState(false);
+  const [localMobileDetailsOpen, setLocalMobileDetailsOpen] = useState(false);
+  const mobileDetailsOpen = channelConfigOpen ?? localMobileDetailsOpen;
   const [weightDraft, setWeightDraft] = useState(String(Math.max(0, Math.trunc(channel.weight ?? 10))));
   const [weightError, setWeightError] = useState(false);
 
@@ -302,7 +305,13 @@ export function SortableChannelRow({
                 <button
                   type="button"
                   className="btn btn-link"
-                  onClick={() => setMobileDetailsOpen((current) => !current)}
+                  onClick={() => {
+                    if (onToggleChannelConfig) {
+                      onToggleChannelConfig();
+                    } else {
+                      setLocalMobileDetailsOpen((current) => !current);
+                    }
+                  }}
                   style={{ marginLeft: 'auto' }}
                 >
                   {mobileDetailsOpen ? '收起配置' : '配置通道'}
@@ -330,7 +339,7 @@ export function SortableChannelRow({
                   <span style={{ fontSize: 10.5, color: weightError ? 'var(--color-danger)' : 'var(--color-text-muted)' }}>
                     {weightError ? '请输入非负整数' : '同一 P 桶内生效'}
                   </span>
-                  <button type="button" onClick={saveWeight} disabled={isUpdatingToken} className="btn btn-link btn-link-info">
+                  <button type="button" onClick={saveWeight} disabled={isUpdatingToken} className="btn btn-link btn-link-info" data-testid="channel-weight-save">
                     保存
                   </button>
                 </div>

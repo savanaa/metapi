@@ -45,9 +45,17 @@ const siteDetectPayloadSchema = z.object({
   url: requiredTrimmedString,
 }).passthrough();
 
+const siteModelTestPayloadSchema = z.object({
+  token: requiredTrimmedString,
+  modelName: requiredTrimmedString,
+  endpointId: z.number().int().positive().optional(),
+  timeoutMs: z.number().int().positive().max(60_000).optional(),
+}).passthrough();
+
 export type SiteBatchPayload = z.output<typeof siteBatchPayloadSchema>;
 export type SiteCreatePayload = z.output<typeof siteCreatePayloadSchema>;
 export type SiteDetectPayload = z.output<typeof siteDetectPayloadSchema>;
+export type SiteModelTestPayload = z.output<typeof siteModelTestPayloadSchema>;
 export type SiteDisabledModelsPayload = z.output<typeof siteDisabledModelsPayloadSchema>;
 export type SiteUpdatePayload = z.output<typeof siteUpdatePayloadSchema>;
 
@@ -154,4 +162,23 @@ export function parseSiteDetectPayload(input: unknown):
     success: true,
     data: result.data,
   };
+}
+
+export function parseSiteModelTestPayload(input: unknown):
+{ success: true; data: SiteModelTestPayload } | { success: false; error: string } {
+  return parseSitePayload(siteModelTestPayloadSchema, input);
+}
+
+function parseSitePayload<T>(schema: z.ZodType<T>, input: unknown):
+{ success: true; data: T } | { success: false; error: string } {
+  const result = schema.safeParse(normalizeSitePayloadInput(input));
+  if (!result.success) {
+    const firstPath = result.error.issues[0]?.path[0];
+    if (firstPath === 'token') return { success: false, error: 'Invalid token. Expected non-empty string.' };
+    if (firstPath === 'modelName') return { success: false, error: 'Invalid modelName. Expected non-empty string.' };
+    if (firstPath === 'endpointId') return { success: false, error: 'Invalid endpointId. Expected positive number.' };
+    if (firstPath === 'timeoutMs') return { success: false, error: 'Invalid timeoutMs. Expected a positive number up to 60000.' };
+    return { success: false, error: 'Invalid site model test payload.' };
+  }
+  return { success: true, data: result.data };
 }

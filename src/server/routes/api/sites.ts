@@ -13,12 +13,14 @@ import {
   parseSiteCreatePayload,
   parseSiteDetectPayload,
   parseSiteDisabledModelsPayload,
+  parseSiteModelTestPayload,
   parseSiteUpdatePayload,
 } from '../../contracts/siteRoutePayloads.js';
 import { getSiteInitializationPreset } from '../../../shared/siteInitializationPresets.js';
 import { normalizeSiteApiEndpointBaseUrl } from '../../services/siteApiEndpointService.js';
 import { analyzePrimarySiteUrl } from '../../../shared/sitePrimaryUrl.js';
 import { probeSiteModels } from '../../services/modelService.js';
+import { testSiteModelConnection } from '../../services/siteConnectionTestService.js';
 
 function sseWrite(raw: import('http').ServerResponse, event: string, data: unknown) {
   try { raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); } catch { /* ignore */ }
@@ -916,6 +918,30 @@ export async function sitesRoutes(app: FastifyInstance) {
       return reply.code(422).send({ error: result.error });
     }
     return result;
+  });
+
+  // Test a real model request without creating an account or changing endpoint health.
+  app.post<{ Params: { id: string }; Body: unknown }>('/api/sites/:id/test-model', async (request, reply) => {
+    const id = parseInt(request.params.id);
+    if (Number.isNaN(id)) {
+      return reply.code(400).send({ error: 'Invalid site id' });
+    }
+    const parsedBody = parseSiteModelTestPayload(request.body);
+    if (!parsedBody.success) {
+      return reply.code(400).send({ error: parsedBody.error });
+    }
+    const site = await db.select().from(schema.sites).where(eq(schema.sites.id, id)).get();
+    if (!site) {
+      return reply.code(404).send({ error: 'Site not found' });
+    }
+
+    return testSiteModelConnection({
+      site,
+      token: parsedBody.data.token,
+      modelName: parsedBody.data.modelName,
+      endpointId: parsedBody.data.endpointId,
+      timeoutMs: parsedBody.data.timeoutMs,
+    });
   });
 
   // Streaming probe via SSE

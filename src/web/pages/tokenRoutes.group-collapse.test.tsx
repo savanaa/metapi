@@ -15,6 +15,9 @@ const { apiMock, getBrandMock } = vi.hoisted(() => ({
     updateRoute: vi.fn(),
     addRoute: vi.fn(),
     batchUpdateChannels: vi.fn(),
+    updateChannel: vi.fn(),
+    deleteChannel: vi.fn(),
+    batchAddChannels: vi.fn(),
   },
   getBrandMock: vi.fn(),
 }));
@@ -103,6 +106,9 @@ describe('TokenRoutes grouped source models', () => {
     apiMock.updateRoute.mockResolvedValue({});
     apiMock.addRoute.mockResolvedValue({});
     apiMock.batchUpdateChannels.mockResolvedValue({ success: true, channels: [] });
+    apiMock.updateChannel.mockResolvedValue({});
+    apiMock.deleteChannel.mockResolvedValue({});
+    apiMock.batchAddChannels.mockResolvedValue({ success: true, created: 1, skipped: 0, errors: [] });
   });
 
   afterEach(() => {
@@ -1106,6 +1112,89 @@ describe('TokenRoutes grouped source models', () => {
     }
   });
 
+  it('hides a same-named exact source route when an explicit group references it', async () => {
+    apiMock.getRoutesSummary.mockResolvedValue([
+      {
+        id: 1, modelPattern: 'deepseek-v4-flash', displayName: 'deepseek-v4-flash',
+        displayIcon: null, modelMapping: null, enabled: true,
+        routeMode: 'pattern', sourceRouteIds: [],
+        channelCount: 1, enabledChannelCount: 1, siteNames: ['source-site'],
+        decisionSnapshot: null, decisionRefreshedAt: null,
+      },
+      {
+        id: 2, modelPattern: 'deepseek-v4-flash', displayName: 'deepseek-v4-flash',
+        displayIcon: null, modelMapping: null, enabled: true,
+        routeMode: 'explicit_group', sourceRouteIds: [1],
+        channelCount: 1, enabledChannelCount: 1, siteNames: ['source-site'],
+        decisionSnapshot: null, decisionRefreshedAt: null,
+      },
+    ]);
+
+    let root!: WebTestRenderer;
+    try {
+      await act(async () => {
+        root = create(
+          <MemoryRouter initialEntries={['/routes']}>
+            <ToastProvider>
+              <TokenRoutes />
+            </ToastProvider>
+          </MemoryRouter>,
+        );
+      });
+      await flushMicrotasks();
+
+      const normalizedText = collectText(root.root).replace(/\s+/g, '');
+      expect(normalizedText).toContain('共1条路由');
+    } finally {
+      root?.unmount();
+    }
+  });
+
+  it('keeps an unreferenced exact route when an explicit group uses the same display name', async () => {
+    apiMock.getRoutesSummary.mockResolvedValue([
+      {
+        id: 1, modelPattern: 'deepseek-v4-flash', displayName: 'deepseek-v4-flash',
+        displayIcon: null, modelMapping: null, enabled: true,
+        routeMode: 'pattern', sourceRouteIds: [],
+        channelCount: 1, enabledChannelCount: 1, siteNames: ['exact-site'],
+        decisionSnapshot: null, decisionRefreshedAt: null,
+      },
+      {
+        id: 2, modelPattern: 'deepseek/deepseek-v4-flash', displayName: 'deepseek/deepseek-v4-flash',
+        displayIcon: null, modelMapping: null, enabled: true,
+        routeMode: 'pattern', sourceRouteIds: [],
+        channelCount: 1, enabledChannelCount: 1, siteNames: ['source-site'],
+        decisionSnapshot: null, decisionRefreshedAt: null,
+      },
+      {
+        id: 3, modelPattern: 'deepseek-v4-flash', displayName: 'deepseek-v4-flash',
+        displayIcon: null, modelMapping: null, enabled: true,
+        routeMode: 'explicit_group', sourceRouteIds: [2],
+        channelCount: 1, enabledChannelCount: 1, siteNames: ['source-site'],
+        decisionSnapshot: null, decisionRefreshedAt: null,
+      },
+    ]);
+
+    let root!: WebTestRenderer;
+    try {
+      await act(async () => {
+        root = create(
+          <MemoryRouter initialEntries={['/routes']}>
+            <ToastProvider>
+              <TokenRoutes />
+            </ToastProvider>
+          </MemoryRouter>,
+        );
+      });
+      await flushMicrotasks();
+
+      const normalizedText = collectText(root.root).replace(/\s+/g, '');
+      expect(normalizedText).toContain('共2条路由');
+    } finally {
+      root?.unmount();
+    }
+  });
+
   it('searches routes by display name as well as model pattern', async () => {
     apiMock.getRoutesSummary.mockResolvedValue([
       {
@@ -1637,7 +1726,7 @@ describe('TokenRoutes grouped source models', () => {
     }
   });
 
-  it('reuses the standard channel row presentation for explicit-group details while keeping channel management hidden', async () => {
+  it('lets explicit-group details manage the underlying source channel', async () => {
     apiMock.getRoutesSummary.mockResolvedValue([
       {
         id: 11, modelPattern: 'claude-haiku-4-5-20251001', displayName: null,
@@ -1700,9 +1789,119 @@ describe('TokenRoutes grouped source models', () => {
       expect(expandedText).toContain('P0');
       expect(expandedText).toContain('当前生效：token-a');
       expect(expandedText).toContain('选中概率');
-      expect(findButtonByAriaLabel(root.root, '拖拽调整优先级桶').props.disabled).toBe(true);
-      expect(root.root.findAll((node) => node.type === 'button' && collectText(node).trim() === '保存')).toHaveLength(0);
-      expect(root.root.findAll((node) => node.type === 'button' && collectText(node).trim() === '移除')).toHaveLength(0);
+      expect(findButtonByAriaLabel(root.root, '拖拽调整优先级桶').props.disabled).toBe(false);
+
+      await act(async () => {
+        findButtonByText(root.root, '配置通道').props.onClick();
+      });
+      await flushMicrotasks();
+      expect(root.root.findAll((node) => node.type === 'button' && collectText(node).trim() === '保存').length).toBeGreaterThan(0);
+      expect(root.root.findAll((node) => node.type === 'button' && collectText(node).trim() === '移除').length).toBeGreaterThan(0);
+
+      const weightInput = root.root.find((node) => node.type === 'input' && String(node.props.id || '').startsWith('channel-weight-'));
+      await act(async () => {
+        weightInput.props.onChange({ currentTarget: { value: '17' } });
+      });
+      const weightSave = root.root.find((node) => node.type === 'button' && node.props['data-testid'] === 'channel-weight-save');
+      await act(async () => {
+        weightSave.props.onClick();
+      });
+      await flushMicrotasks();
+      expect(apiMock.updateChannel).toHaveBeenCalledWith(101, { weight: 17 });
+      const disableButton = findButtonByText(root.root, '禁用');
+      await act(async () => {
+        disableButton.props.onClick();
+      });
+      await flushMicrotasks();
+      expect(apiMock.updateChannel).toHaveBeenCalledWith(101, { enabled: false });
+    } finally {
+      root?.unmount();
+    }
+  });
+
+  it('adds new explicit-group channels to the selected source route', async () => {
+    apiMock.getRoutesSummary.mockResolvedValue([
+      {
+        id: 11, modelPattern: 'claude-haiku-4-5-20251001', displayName: null,
+        displayIcon: null, modelMapping: null, enabled: true,
+        routeMode: 'pattern', sourceRouteIds: [],
+        channelCount: 0, enabledChannelCount: 0, siteNames: [],
+        decisionSnapshot: null, decisionRefreshedAt: null,
+      },
+      {
+        id: 21, modelPattern: 'claude-haiku-proxy', displayName: 'claude-haiku-proxy',
+        displayIcon: '', modelMapping: null, enabled: true,
+        routeMode: 'explicit_group', sourceRouteIds: [11],
+        channelCount: 0, enabledChannelCount: 0, siteNames: [],
+        decisionSnapshot: null, decisionRefreshedAt: null,
+      },
+    ]);
+    apiMock.getRouteChannels.mockResolvedValue([]);
+    apiMock.getModelTokenCandidates.mockResolvedValue({
+      models: {
+        'claude-haiku-4-5-20251001': [
+          {
+            accountId: 301,
+            tokenId: 401,
+            tokenName: 'token-a',
+            isDefault: true,
+            username: 'linuxdo_131936',
+            siteId: 501,
+            siteName: 'Wong',
+          },
+        ],
+      },
+    });
+
+    let root!: WebTestRenderer;
+    try {
+      await act(async () => {
+        root = create(
+          <MemoryRouter initialEntries={['/routes']}>
+            <ToastProvider>
+              <TokenRoutes />
+            </ToastProvider>
+          </MemoryRouter>,
+        );
+      });
+      await flushMicrotasks();
+
+      const expandBtn = root.root.find((node) =>
+        node.type === 'div'
+        && String(node.props.className || '').includes('route-card-collapsed')
+        && collectText(node).includes('claude-haiku-proxy'),
+      );
+      await act(async () => {
+        expandBtn.props.onClick();
+      });
+      await flushMicrotasks();
+
+      const sourceActions = root.root.find((node) => node.props['data-testid'] === 'explicit-group-source-actions');
+      const addSourceButton = sourceActions.find((node) => node.type === 'button');
+      await act(async () => {
+        addSourceButton.props.onClick();
+      });
+      await flushMicrotasks();
+
+      const accountOption = root.root.find((node) =>
+        node.type === 'div'
+        && typeof node.props.onClick === 'function'
+        && node.props.style?.cursor === 'pointer'
+        && collectText(node).includes('linuxdo_131936 @ Wong'),
+      );
+      await act(async () => {
+        accountOption.props.onClick();
+      });
+      await flushMicrotasks();
+
+      await act(async () => {
+        findButtonByText(root.root, '批量添加').props.onClick();
+      });
+      await flushMicrotasks();
+
+      expect(apiMock.batchAddChannels).toHaveBeenCalledWith(11, [
+        { accountId: 301 },
+      ]);
     } finally {
       root?.unmount();
     }

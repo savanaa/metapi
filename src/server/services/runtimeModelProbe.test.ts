@@ -84,6 +84,7 @@ describe('probeRuntimeModel', () => {
       account,
       modelName: 'gpt-5.4',
       timeoutMs: 10,
+      targetBaseUrl: 'https://probe.example.com',
     });
 
     expect(result.status).toBe('inconclusive');
@@ -120,11 +121,51 @@ describe('probeRuntimeModel', () => {
       account,
       modelName: 'gpt-5.4',
       timeoutMs: 30,
+      targetBaseUrl: 'https://configured-api.example.com/provider',
     });
     const elapsedMs = Date.now() - startedAt;
 
     expect(result.status).toBe('inconclusive');
     expect(result.latencyMs).not.toBeNull();
     expect(elapsedMs).toBeLessThan(200);
+    expect(dispatchRuntimeRequestMock).toHaveBeenCalled();
+    expect(dispatchRuntimeRequestMock.mock.calls[0]?.[0]?.targetUrl).toContain(
+      'https://configured-api.example.com/provider/',
+    );
+  });
+
+  it('sends the resolved upstream model to a Claude site without changing the messages path', async () => {
+    const claudeSite = { ...site, platform: 'claude' };
+    resolveUpstreamEndpointCandidatesMock.mockResolvedValue(['messages']);
+    dispatchRuntimeRequestMock.mockImplementation(async (input: {
+      request: Record<string, unknown>;
+    }) => {
+      expect(input.request).toMatchObject({
+        path: '/v1/messages',
+        body: { model: 'deepseek/deepseek-v4-flash' },
+      });
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    });
+    buildUpstreamEndpointRequestMock.mockImplementation((input: { modelName: string; downstreamFormat: string }) => ({
+      path: '/v1/messages',
+      headers: { 'content-type': 'application/json' },
+      body: { model: input.modelName },
+      runtime: { executor: 'claude', modelName: input.modelName, stream: false },
+    }));
+
+    const { probeRuntimeModel } = await import('./runtimeModelProbe.js');
+    const result = await probeRuntimeModel({
+      site: claudeSite,
+      account,
+      modelName: 'deepseek/deepseek-v4-flash',
+      timeoutMs: 1_000,
+      targetBaseUrl: 'https://api.commandcode.ai/provider',
+    });
+
+    expect(result.status).toBe('supported');
+    expect(buildUpstreamEndpointRequestMock).toHaveBeenCalledWith(expect.objectContaining({
+      modelName: 'deepseek/deepseek-v4-flash',
+      downstreamFormat: 'claude',
+    }));
   });
 });

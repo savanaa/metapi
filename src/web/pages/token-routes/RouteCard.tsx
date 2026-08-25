@@ -94,7 +94,11 @@ type RouteCardProps = {
   missingTokenGroupItems: MissingTokenGroupRouteSiteActionItem[];
   onCreateTokenForMissing: (accountId: number, modelName: string) => void;
   // Add channel
-  onAddChannel: (routeId: number) => void;
+  onAddChannel: (routeId: number, sourceRouteId?: number) => void;
+  sourceRoutes?: RouteSummaryRow[];
+  getCandidateViewForRoute?: (routeId: number) => RouteCandidateView;
+  channelConfigOpenById?: Record<number, boolean>;
+  onToggleChannelConfig?: (channelId: number) => void;
   // Site block model
   onSiteBlockModel: (channelId: number, routeId: number) => void;
   // Source group expansion
@@ -370,6 +374,9 @@ type SortableChannelShellProps = {
   loadingDecision: boolean;
   channelManagementDisabled: boolean;
   routeId: number;
+  getCandidateViewForRoute?: (routeId: number) => RouteCandidateView;
+  channelConfigOpen?: boolean;
+  onToggleChannelConfig?: (channelId: number) => void;
   onTokenDraftChange: (channelId: number, tokenId: number) => void;
   onSaveToken: (routeId: number, channelId: number, accountId: number) => void;
   onSaveWeight?: (routeId: number, channelId: number, weight: number) => void;
@@ -401,6 +408,9 @@ function SortableChannelShell({
   loadingDecision,
   channelManagementDisabled,
   routeId,
+  getCandidateViewForRoute,
+  channelConfigOpen,
+  onToggleChannelConfig,
   onTokenDraftChange,
   onSaveToken,
   onSaveWeight,
@@ -426,7 +436,9 @@ function SortableChannelShell({
     disabled: savingPriority || readOnlyRoute,
   });
 
-  const tokenOptions = candidateView.tokenOptionsByAccountId[channel.accountId] || [];
+  const managementRouteId = channel.routeId ?? routeId;
+  const channelCandidateView = getCandidateViewForRoute?.(managementRouteId) || candidateView;
+  const tokenOptions = channelCandidateView.tokenOptionsByAccountId[channel.accountId] || [];
   const activeTokenId = channelTokenDraft[channel.id] ?? channel.tokenId ?? 0;
   const showDesktopRailHeader = !compact && channelIndex === 0;
   const showDesktopRailLine = !compact
@@ -527,11 +539,13 @@ function SortableChannelShell({
         activeTokenId={activeTokenId}
         isUpdatingToken={!!updatingChannel[channel.id]}
         onTokenDraftChange={onTokenDraftChange}
-        onSaveToken={() => onSaveToken(routeId, channel.id, channel.accountId)}
-        onSaveWeight={onSaveWeight ? (weight) => onSaveWeight(routeId, channel.id, weight) : undefined}
-        onDeleteChannel={() => onDeleteChannel(channel.id, routeId)}
-        onToggleEnabled={(enabled) => onToggleChannelEnabled(channel.id, routeId, enabled)}
-        onSiteBlockModel={channelManagementDisabled ? undefined : () => onSiteBlockModel(channel.id, routeId)}
+        onSaveToken={() => onSaveToken(managementRouteId, channel.id, channel.accountId)}
+        onSaveWeight={onSaveWeight ? (weight) => onSaveWeight(managementRouteId, channel.id, weight) : undefined}
+        onDeleteChannel={() => onDeleteChannel(channel.id, managementRouteId)}
+        onToggleEnabled={(enabled) => onToggleChannelEnabled(channel.id, managementRouteId, enabled)}
+        onSiteBlockModel={channelManagementDisabled ? undefined : () => onSiteBlockModel(channel.id, managementRouteId)}
+        channelConfigOpen={channelConfigOpen}
+        onToggleChannelConfig={() => onToggleChannelConfig?.(channel.id)}
       />
     </div>
   );
@@ -570,6 +584,10 @@ function RouteCardInner({
   missingTokenGroupItems,
   onCreateTokenForMissing,
   onAddChannel,
+  sourceRoutes = [],
+  getCandidateViewForRoute,
+  channelConfigOpenById = {},
+  onToggleChannelConfig,
   onSiteBlockModel,
   expandedSourceGroupMap,
   onToggleSourceGroup,
@@ -579,7 +597,7 @@ function RouteCardInner({
   const explicitGroupRoute = isExplicitGroupRoute(route);
   const explicitGroupSourceCount = Array.isArray(route.sourceRouteIds) ? route.sourceRouteIds.length : 0;
   const readOnlyRoute = route.kind === 'zero_channel' || route.readOnly === true || route.isVirtual === true;
-  const channelManagementDisabled = explicitGroupRoute;
+  const channelManagementDisabled = false;
   const title = resolveRouteTitle(route);
   const routingStrategy = normalizeRouteRoutingStrategyValue(route.routingStrategy);
   const routingStrategyDescription = getRouteRoutingStrategyDescription(routingStrategy);
@@ -588,7 +606,7 @@ function RouteCardInner({
   const cachedDecisionTooltip = route.decisionRefreshedAt
     ? `${tr('最近刷新')}: ${formatDateTimeMinuteLocal(route.decisionRefreshedAt)}`
     : undefined;
-  const showAddChannelButton = !readOnlyRoute && !channelManagementDisabled;
+  const showAddChannelButton = !readOnlyRoute && !explicitGroupRoute;
   const showMissingTokenHints = !channelManagementDisabled && (missingTokenSiteItems.length > 0 || missingTokenGroupItems.length > 0);
   const routeUnits = collectRouteUnits(channels);
   const routingStrategyOptions = [
@@ -678,6 +696,49 @@ function RouteCardInner({
       + {tr('添加通道')}
     </button>
   );
+
+  const renderGroupSourceAddButtons = () => {
+    if (!explicitGroupRoute || readOnlyRoute || sourceRoutes.length === 0) return null;
+    return (
+      <div
+        data-testid="explicit-group-source-actions"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          flexWrap: 'wrap',
+          marginBottom: 8,
+          padding: '6px 8px',
+          border: '1px solid color-mix(in srgb, var(--color-border) 76%, transparent)',
+          borderRadius: 10,
+          background: 'color-mix(in srgb, var(--color-bg-card) 97%, white 3%)',
+        }}
+      >
+        <span style={{ fontSize: 11, color: 'var(--color-text-secondary)' }}>{tr('按来源模型添加通道')}:</span>
+        {sourceRoutes.map((sourceRoute) => {
+          const sourceTitle = resolveRouteTitle(sourceRoute);
+          return (
+            <button
+              key={`group-source-add-${sourceRoute.id}`}
+              type="button"
+              onClick={() => onAddChannel(route.id, sourceRoute.id)}
+              className="btn btn-ghost"
+              style={{
+                fontSize: 11,
+                padding: '4px 8px',
+                border: '1px dashed var(--color-border)',
+                borderRadius: 9,
+                whiteSpace: 'nowrap',
+              }}
+              data-tooltip={`${tr('添加通道')}：${sourceRoute.modelPattern}`}
+            >
+              + {sourceTitle}
+            </button>
+          );
+        })}
+      </div>
+    );
+  };
 
   // Collapsed card
   if (!expanded) {
@@ -1109,6 +1170,8 @@ function RouteCardInner({
         </div>
       )}
 
+      {renderGroupSourceAddButtons()}
+
       {/* Missing token hints + Add channel button */}
       <div style={{ display: 'flex', alignItems: compact ? 'stretch' : 'flex-start', flexDirection: compact ? 'column' : 'row', justifyContent: 'space-between', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
         {showMissingTokenHints ? (
@@ -1212,6 +1275,9 @@ function RouteCardInner({
                             loadingDecision={loadingDecision}
                             channelManagementDisabled={channelManagementDisabled}
                             routeId={route.id}
+                            getCandidateViewForRoute={getCandidateViewForRoute}
+                            channelConfigOpen={channelConfigOpenById[channel.id]}
+                            onToggleChannelConfig={onToggleChannelConfig}
                             onTokenDraftChange={onTokenDraftChange}
                             onSaveToken={onSaveToken}
                             onSaveWeight={onSaveWeight}
@@ -1303,6 +1369,10 @@ function areRouteCardPropsEqual(prev: RouteCardProps, next: RouteCardProps): boo
     || prev.onChannelDragEnd !== next.onChannelDragEnd
     || prev.onCreateTokenForMissing !== next.onCreateTokenForMissing
     || prev.onAddChannel !== next.onAddChannel
+    || prev.sourceRoutes !== next.sourceRoutes
+    || prev.getCandidateViewForRoute !== next.getCandidateViewForRoute
+    || prev.channelConfigOpenById !== next.channelConfigOpenById
+    || prev.onToggleChannelConfig !== next.onToggleChannelConfig
     || prev.onSiteBlockModel !== next.onSiteBlockModel
     || prev.onToggleSourceGroup !== next.onToggleSourceGroup
     || prev.clearingCooldown !== next.clearingCooldown
