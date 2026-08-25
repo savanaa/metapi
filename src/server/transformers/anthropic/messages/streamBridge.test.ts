@@ -27,6 +27,147 @@ describe('anthropic messages stream bridge', () => {
     expect(result.lines.join('')).toContain('event: message_stop');
   });
 
+  it('normalizes required fields in native content block SSE events', () => {
+    const result = consumeAnthropicSseEvent(
+      {
+        event: 'content_block_start',
+        data: JSON.stringify({
+          type: 'content_block_start',
+          index: 0,
+          content_block: {
+            type: 'text',
+            text: null,
+          },
+        }),
+      },
+      anthropicMessagesStream.createContext('claude-test'),
+      anthropicMessagesStream.createDownstreamContext(),
+      'claude-test',
+    );
+
+    const payload = JSON.parse(result.lines.join('').match(/data: (.*)\n/)?.[1] ?? '{}');
+    expect(payload).toMatchObject({
+      type: 'content_block_start',
+      index: 0,
+      content_block: {
+        type: 'text',
+        text: '',
+      },
+    });
+  });
+
+  it('moves complete tool input from a native block start into an input delta', () => {
+    const result = consumeAnthropicSseEvent(
+      {
+        event: 'content_block_start',
+        data: JSON.stringify({
+          type: 'content_block_start',
+          index: 2,
+          content_block: {
+            type: 'tool_use',
+            id: 'toolu_weather',
+            name: 'get_weather',
+            input: { city: 'Beijing' },
+          },
+        }),
+      },
+      anthropicMessagesStream.createContext('claude-test'),
+      anthropicMessagesStream.createDownstreamContext(),
+      'claude-test',
+    );
+
+    const events = anthropicMessagesStream.pullSseEvents(result.lines.join('')).events
+      .map((event) => JSON.parse(event.data));
+    expect(events).toEqual([
+      {
+        type: 'content_block_start',
+        index: 2,
+        content_block: {
+          type: 'tool_use',
+          id: 'toolu_weather',
+          name: 'get_weather',
+          input: {},
+        },
+      },
+      {
+        type: 'content_block_delta',
+        index: 2,
+        delta: {
+          type: 'input_json_delta',
+          partial_json: '{"city":"Beijing"}',
+        },
+      },
+    ]);
+  });
+
+  it('does not emit an empty input delta for the protocol-mandated empty tool input', () => {
+    const result = consumeAnthropicSseEvent(
+      {
+        event: 'content_block_start',
+        data: JSON.stringify({
+          type: 'content_block_start',
+          index: 0,
+          content_block: {
+            type: 'tool_use',
+            id: 'toolu_bash',
+            name: 'Bash',
+            input: {},
+          },
+        }),
+      },
+      anthropicMessagesStream.createContext('claude-test'),
+      anthropicMessagesStream.createDownstreamContext(),
+      'claude-test',
+    );
+
+    const events = anthropicMessagesStream.pullSseEvents(result.lines.join('')).events
+      .map((event) => JSON.parse(event.data));
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      type: 'content_block_start',
+      content_block: { type: 'tool_use', input: {} },
+    });
+    expect(events.some((event) => event.delta?.partial_json === '{}')).toBe(false);
+  });
+
+  it('supports complete tool calls emitted in an OpenAI message stream event', () => {
+    const event = anthropicMessagesStream.normalizeEvent(
+      {
+        id: 'chatcmpl-1',
+        model: 'claude-test',
+        choices: [{
+          index: 0,
+          message: {
+            role: 'assistant',
+            content: null,
+            tool_calls: [{
+              index: 0,
+              id: 'call_1',
+              type: 'function',
+              function: {
+                name: 'get_weather',
+                arguments: '{"city":"Beijing"}',
+              },
+            }],
+          },
+          finish_reason: 'tool_calls',
+        }],
+      },
+      anthropicMessagesStream.createContext('claude-test'),
+      'claude-test',
+    );
+
+    expect(event).toMatchObject({
+      finishReason: 'tool_calls',
+      toolCallDeltas: [{
+        index: 0,
+        id: 'call_1',
+        name: 'get_weather',
+        argumentsDelta: '{"city":"Beijing"}',
+      }],
+    });
+  });
+
   it('serializes normalized upstream finals back into anthropic SSE blocks', () => {
     const streamContext = anthropicMessagesStream.createContext('claude-test');
     const downstreamContext = anthropicMessagesStream.createDownstreamContext();

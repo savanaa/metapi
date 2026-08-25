@@ -98,6 +98,29 @@ describe('anthropic messages response bridge', () => {
     });
   });
 
+  it('normalizes required fields in native final content blocks', () => {
+    const normalized = normalizeAnthropicMessagesFinalToNormalized({
+      id: 'msg_native_invalid',
+      type: 'message',
+      role: 'assistant',
+      model: 'claude-test',
+      content: [
+        { type: 'text', text: null },
+        { type: null },
+        { type: 'tool_use', id: 'toolu_weather', name: 'get_weather', input: null },
+      ],
+      stop_reason: 'end_turn',
+      stop_sequence: null,
+    }, 'claude-test');
+
+    const body = buildNormalizedFinalToAnthropicMessagesBody(normalized);
+    expect(body.content).toEqual([
+      { type: 'text', text: '' },
+      { type: 'text', text: '' },
+      { type: 'tool_use', id: 'toolu_weather', name: 'get_weather', input: {} },
+    ]);
+  });
+
   it('preserves responses output-item ordering when serializing to anthropic blocks', () => {
     const normalized = normalizeAnthropicMessagesFinalToNormalized({
       id: 'resp_order_1',

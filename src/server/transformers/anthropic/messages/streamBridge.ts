@@ -12,6 +12,10 @@ import {
 } from '../../shared/normalized.js';
 import { decodeAnthropicReasoningSignature } from '../../shared/reasoningTransport.js';
 import { type AnthropicExtendedStreamEvent } from './aggregator.js';
+import {
+  normalizeAnthropicContentBlock,
+  normalizeAnthropicOutboundSsePayload,
+} from './outboundNormalizer.js';
 
 type AnthropicStreamPayload = Record<string, unknown>;
 type AnthropicMessagesNormalizedFinalResponse = NormalizedFinalResponse & {
@@ -90,8 +94,8 @@ function buildAnthropicFinalContentBlocks(
   if (Array.isArray(anthropicNormalized.nativeContent) && anthropicNormalized.nativeContent.length > 0) {
     return anthropicNormalized.nativeContent
       .filter((block): block is AnthropicStreamPayload => isRecord(block))
-      .map((block) => {
-        const cloned = cloneJsonValue(block);
+      .map((block, index) => {
+        const cloned = normalizeAnthropicContentBlock(block, index);
         const blockType = asTrimmedString(cloned.type).toLowerCase();
         if (blockType === 'thinking') {
           const signature = cleanAnthropicReasoningSignature(cloned.signature);
@@ -153,12 +157,16 @@ function buildAnthropicFinalContentBlocks(
 }
 
 function serializeToolInputDelta(input: unknown): string | null {
-  if (input === undefined) return null;
-  if (typeof input === 'string') return input;
+  if (input === undefined || input === null) return null;
+  if (typeof input === 'string') {
+    const trimmed = input.trim();
+    return trimmed && trimmed !== '{}' ? input : null;
+  }
+  if (isRecord(input) && Object.keys(input).length === 0) return null;
   try {
     return JSON.stringify(input);
   } catch {
-    return JSON.stringify({});
+    return null;
   }
 }
 
@@ -767,6 +775,56 @@ function asUntouchedString(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
+function extractCompleteOpenAiToolCallDeltas(
+  payload: unknown,
+): NonNullable<NormalizedStreamEvent['toolCallDeltas']> {
+  if (!isRecord(payload) || !Array.isArray(payload.choices)) return [];
+  const choice = isRecord(payload.choices[0]) ? payload.choices[0] : {};
+  const message = isRecord(choice.message) ? choice.message : {};
+  const rawToolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+
+  return rawToolCalls.flatMap((item, itemIndex) => {
+    if (!isRecord(item)) return [];
+    const functionPart = isRecord(item.function) ? item.function : {};
+    const id = asTrimmedString(item.id);
+    const name = asTrimmedString(functionPart.name || item.name);
+    const rawArguments = functionPart.arguments ?? item.arguments;
+    const argumentsDelta = typeof rawArguments === 'string'
+      ? rawArguments
+      : (rawArguments === undefined ? undefined : JSON.stringify(rawArguments));
+
+    if (!id && !name && argumentsDelta === undefined) return [];
+    return [{
+      index: typeof item.index === 'number' && Number.isFinite(item.index)
+        ? Math.max(0, Math.trunc(item.index))
+        : itemIndex,
+      ...(id ? { id } : {}),
+      ...(name ? { name } : {}),
+      ...(argumentsDelta !== undefined ? { argumentsDelta } : {}),
+    }];
+  });
+}
+
+function normalizeAnthropicCompatibleStreamEvent(
+  payload: unknown,
+  context: StreamTransformContext,
+  modelName: string,
+): AnthropicExtendedStreamEvent {
+  const normalized = normalizeUpstreamStreamEvent(payload, context, modelName) as AnthropicExtendedStreamEvent;
+  if (Array.isArray(normalized.toolCallDeltas) && normalized.toolCallDeltas.length > 0) {
+    return normalized;
+  }
+
+  const completeToolCalls = extractCompleteOpenAiToolCallDeltas(payload);
+  if (completeToolCalls.length === 0) return normalized;
+
+  return {
+    ...normalized,
+    toolCallDeltas: completeToolCalls,
+    finishReason: normalized.finishReason || 'tool_calls',
+  };
+}
+
 function normalizeAnthropicRawEvent(
   payload: AnthropicStreamPayload,
   context: StreamTransformContext,
@@ -924,17 +982,41 @@ export function consumeAnthropicSseEvent(
       : (isAnthropicRawSseEventName(payloadType) ? payloadType : '');
 
     if (claudeEventName) {
-      syncAnthropicRawStreamStateFromEvent(
+      const normalizedPayload = normalizeAnthropicOutboundSsePayload(
         claudeEventName,
         parsedPayload,
+        fallbackModel,
+        streamContext.id,
+      );
+      syncAnthropicRawStreamStateFromEvent(
+        claudeEventName,
+        normalizedPayload,
         streamContext,
         context,
       );
+      const lines = [
+        serializeAnthropicRawSseEvent(claudeEventName, JSON.stringify(normalizedPayload)),
+      ];
+      if (claudeEventName === 'content_block_start') {
+        const sourceBlock = isRecord(parsedPayload.content_block) ? parsedPayload.content_block : null;
+        const sourceInput = sourceBlock?.type === 'tool_use' ? sourceBlock.input : undefined;
+        const partialJson = sourceInput === undefined ? null : serializeToolInputDelta(sourceInput);
+        if (partialJson !== null) {
+          lines.push(serializeAnthropicRawSseEvent('content_block_delta', JSON.stringify({
+            type: 'content_block_delta',
+            index: typeof parsedPayload.index === 'number' ? Math.max(0, Math.trunc(parsedPayload.index)) : 0,
+            delta: {
+              type: 'input_json_delta',
+              partial_json: partialJson,
+            },
+          })));
+        }
+      }
       return {
         handled: true,
-        lines: [serializeAnthropicRawSseEvent(claudeEventName, eventBlock.data)],
+        lines,
         done: context.doneSent,
-        parsedPayload,
+        parsedPayload: normalizedPayload,
       };
     }
   }
@@ -959,7 +1041,7 @@ export const anthropicMessagesStream = {
       const anthropicEvent = normalizeAnthropicRawEvent(payload, context, modelName);
       if (anthropicEvent) return anthropicEvent;
     }
-    return normalizeUpstreamStreamEvent(payload, context, modelName) as AnthropicExtendedStreamEvent;
+    return normalizeAnthropicCompatibleStreamEvent(payload, context, modelName);
   },
   serializeEvent(
     event: NormalizedStreamEvent,

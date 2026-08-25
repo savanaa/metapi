@@ -1,6 +1,7 @@
 import { normalizeUpstreamFinalResponse, toClaudeStopReason, type NormalizedFinalResponse } from '../../shared/normalized.js';
 import { decodeAnthropicReasoningSignature } from '../../shared/reasoningTransport.js';
 import { toAnthropicUsagePayload } from './usage.js';
+import { normalizeAnthropicContentBlock } from './outboundNormalizer.js';
 
 type AnthropicRecord = Record<string, unknown>;
 
@@ -58,8 +59,8 @@ function cleanAnthropicReasoningSignature(value: unknown): string | null {
 function buildAnthropicContent(normalized: NormalizedFinalResponse): Array<Record<string, unknown>> {
   const anthropicNormalized = normalized as AnthropicMessagesNormalizedFinalResponse;
   if (Array.isArray(anthropicNormalized.nativeContent) && anthropicNormalized.nativeContent.length > 0) {
-    return anthropicNormalized.nativeContent.map((block) => {
-      const cloned = cloneJsonValue(block);
+    return anthropicNormalized.nativeContent.map((block, index) => {
+      const cloned = normalizeAnthropicContentBlock(block, index);
       const blockType = asTrimmedString(cloned.type).toLowerCase();
       if (blockType === 'thinking') {
         const signature = cleanAnthropicReasoningSignature(cloned.signature);
