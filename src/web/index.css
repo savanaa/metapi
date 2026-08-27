@@ -3769,39 +3769,15 @@ textarea {
   padding: 56px 56px 44px;
   display: flex;
   flex-direction: column;
+  justify-content: center;
   gap: 28px;
   color: var(--color-text-primary);
   border-radius: 30px;
   overflow: hidden;
-}
-
-.login-brand-panel-light {
   background:
     radial-gradient(circle at top left, rgba(96, 165, 250, 0.22), transparent 26%),
     radial-gradient(circle at right 20%, rgba(34, 211, 238, 0.16), transparent 22%),
     linear-gradient(160deg, #f8fbff 0%, #edf4ff 52%, #e9f0fa 100%);
-}
-
-.login-brand-panel::before {
-  content: '';
-  position: absolute;
-  inset: auto auto -12% -8%;
-  width: 280px;
-  height: 280px;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(125, 211, 252, 0.2), transparent 68%);
-  pointer-events: none;
-}
-
-.login-brand-panel::after {
-  content: '';
-  position: absolute;
-  inset: 28px 26px auto auto;
-  width: 220px;
-  height: 220px;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(59, 130, 246, 0.12), transparent 66%);
-  pointer-events: none;
 }
 
 .login-brand-header {
@@ -3891,110 +3867,6 @@ textarea {
   font-size: 18px;
   line-height: 1.92;
   color: var(--color-text-secondary);
-}
-
-.login-compat-line {
-  max-width: 42ch;
-  font-size: 13px;
-  line-height: 1.8;
-  color: #475569;
-}
-
-.login-capability-list {
-  display: grid;
-  gap: 0;
-  max-width: 44rem;
-  margin-top: auto;
-  border-top: 1px solid rgba(148, 163, 184, 0.18);
-}
-
-.login-capability-row {
-  display: grid;
-  grid-template-columns: 36px minmax(0, 1fr);
-  gap: 16px;
-  align-items: start;
-  padding: 18px 0;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
-}
-
-.login-capability-index {
-  padding-top: 3px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  color: #64748b;
-}
-
-.login-capability-content {
-  display: grid;
-  gap: 6px;
-}
-
-.login-capability-title {
-  font-family: 'Avenir Next', 'Segoe UI Variable Display', 'PingFang SC', 'Noto Sans SC', sans-serif;
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: -0.03em;
-  color: #0f172a;
-}
-
-.login-capability-desc {
-  margin: 0;
-  max-width: 34ch;
-  font-size: 14px;
-  line-height: 1.75;
-  color: var(--color-text-secondary);
-}
-
-.login-brand-footer {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.login-icon-link {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 42px;
-  height: 42px;
-  border-radius: 999px;
-  border: 1px solid rgba(99, 102, 241, 0.12);
-  background: rgba(255, 255, 255, 0.76);
-  color: #0f172a;
-  text-decoration: none;
-  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
-}
-
-.login-icon-link:hover {
-  transform: translateY(-1px);
-  border-color: rgba(99, 102, 241, 0.2);
-  box-shadow: 0 10px 18px rgba(37, 99, 235, 0.12);
-}
-
-.login-icon-link-svg {
-  width: 18px;
-  height: 18px;
-}
-
-.login-doc-link {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 10px 15px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.76);
-  color: var(--color-primary);
-  border: 1px solid rgba(99, 102, 241, 0.16);
-  font-size: 12px;
-  font-weight: 700;
-  text-decoration: none;
-  transition: transform 0.18s ease, box-shadow 0.18s ease;
-}
-
-.login-doc-link:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 10px 18px rgba(37, 99, 235, 0.12);
 }
 
 .login-auth-stage {
@@ -4105,6 +3977,7 @@ textarea {
 
 [data-theme="dark"] .login-shell,
 [data-theme="dark"] .login-surface,
+[data-theme="dark"] .login-brand-panel,
 [data-theme="dark"] .brand-mark-frame,
 [data-theme="dark"] .brand-mark-canvas,
 [data-theme="dark"] .login-auth-stage,
@@ -4113,16 +3986,9 @@ textarea {
 }
 
 [data-theme="dark"] .login-brand-kicker,
-[data-theme="dark"] .login-compat-line,
-[data-theme="dark"] .login-capability-index,
-[data-theme="dark"] .login-icon-link,
 [data-theme="dark"] .login-auth-note,
 [data-theme="dark"] .login-auth-footer {
   color: #cbd5e1;
-}
-
-[data-theme="dark"] .login-capability-title {
-  color: #f8fafc;
 }
 
 [data-theme="dark"] .login-auth-footer {
@@ -4157,10 +4023,6 @@ textarea {
     padding: 34px 28px 26px;
   }
 
-  .login-capability-row {
-    grid-template-columns: 32px minmax(0, 1fr);
-    gap: 12px;
-  }
 }
 
 @media (max-width: 640px) {
@@ -4198,9 +4060,6 @@ textarea {
     font-size: 15px;
   }
 
-  .login-brand-footer {
-    margin-top: 0;
-  }
 }
 
 /* ===== Empty State ===== */

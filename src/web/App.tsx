@@ -14,7 +14,7 @@ import {
 } from './appLocalState.js';
 import { I18nProvider, useI18n } from './i18n.js';
 import { resolveLoginErrorMessage } from './loginError.js';
-import { SITE_DOCS_URL, SITE_GITHUB_URL } from './docsLink.js';
+import { SITE_DOCS_URL } from './docsLink.js';
 import { useAnimatedVisibility } from './components/useAnimatedVisibility.js';
 import { useIsMobile } from './components/useIsMobile.js';
 import { MobileDrawer } from './components/MobileDrawer.js';
@@ -132,20 +132,6 @@ export function Login({ onLogin, t }: { onLogin: (token: string) => void; t: (te
   const [token, setToken] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const capabilityRows = [
-    {
-      title: t('统一代理网关'),
-      description: t('一个 Key、一个入口，兼容 OpenAI / Claude 下游格式'),
-    },
-    {
-      title: t('自动模型发现'),
-      description: t('上游新增模型自动出现在模型列表，零配置路由生成'),
-    },
-    {
-      title: t('智能路由引擎'),
-      description: t('按成本、延迟、成功率自动选择最优通道，故障自动转移'),
-    },
-  ];
 
   const handleLogin = async () => {
     if (!token) return;
@@ -184,7 +170,7 @@ export function Login({ onLogin, t }: { onLogin: (token: string) => void; t: (te
   return (
     <div className="login-shell">
       <div className="login-surface animate-scale-in">
-        <section className="login-brand-panel login-brand-panel-light">
+        <section className="login-brand-panel">
           <div className="login-brand-header">
             <div className="brand-mark-frame brand-mark-frame-hero">
               <div className="brand-mark-canvas">
@@ -200,43 +186,6 @@ export function Login({ onLogin, t }: { onLogin: (token: string) => void; t: (te
             <p className="login-brand-copy">
               {t('把分散的 New API / One API / OneHub 等站点聚合成统一网关，自动发现模型、智能路由、成本更优。')}
             </p>
-          </div>
-          <div className="login-compat-line">{t('兼容 New API / One API / OneHub / DoneHub / Veloera / AnyRouter / Sub2API')}</div>
-          <div className="login-capability-list">
-            {capabilityRows.map((feature, index) => (
-              <div key={feature.title} className="login-capability-row">
-                <div className="login-capability-index">{String(index + 1).padStart(2, '0')}</div>
-                <div className="login-capability-content">
-                  <div className="login-capability-title">{feature.title}</div>
-                  <p className="login-capability-desc">{feature.description}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="login-brand-footer">
-            <a
-              href={SITE_GITHUB_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="login-icon-link"
-              aria-label="GitHub"
-              title="GitHub"
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true" className="login-icon-link-svg">
-                <path
-                  fill="currentColor"
-                  d="M12 2C6.48 2 2 6.59 2 12.25c0 4.53 2.87 8.38 6.84 9.73.5.1.68-.22.68-.49 0-.24-.01-1.04-.01-1.88-2.78.62-3.37-1.22-3.37-1.22-.45-1.2-1.11-1.52-1.11-1.52-.91-.64.07-.63.07-.63 1 .07 1.53 1.06 1.53 1.06.9 1.57 2.35 1.12 2.92.85.09-.67.35-1.12.64-1.38-2.22-.26-4.55-1.15-4.55-5.13 0-1.13.39-2.05 1.03-2.77-.1-.26-.45-1.31.1-2.73 0 0 .84-.28 2.75 1.06A9.3 9.3 0 0 1 12 6.91c.85 0 1.71.12 2.51.35 1.91-1.34 2.75-1.06 2.75-1.06.55 1.42.2 2.47.1 2.73.64.72 1.03 1.64 1.03 2.77 0 3.99-2.34 4.86-4.57 5.12.36.33.68.97.68 1.96 0 1.42-.01 2.56-.01 2.91 0 .27.18.59.69.49A10.27 10.27 0 0 0 22 12.25C22 6.59 17.52 2 12 2Z"
-                />
-              </svg>
-            </a>
-            <a
-              href={SITE_DOCS_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="login-doc-link"
-            >
-              {t('部署文档')}
-            </a>
           </div>
         </section>
 
