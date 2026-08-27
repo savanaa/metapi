@@ -13,4 +13,7 @@ services:
       PORT: ${PORT:-4000}
       DATA_DIR: /app/data
       TZ: ${TZ:-Asia/Shanghai}
+      HTTP_PROXY: http://192.168.101.49:7892
+      HTTPS_PROXY: http://192.168.101.49:7892
+      NO_PROXY: localhost,127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
     restart: unless-stopped

@@ -36,6 +36,7 @@ import {
   buildOauthProviderHeaders,
 } from '../../services/oauth/service.js';
 import { getOauthInfoFromAccount } from '../../services/oauth/oauthAccount.js';
+import { getUpstreamStreamModeFromExtraConfig } from '../../services/accountExtraConfig.js';
 import {
   collectResponsesFinalPayloadFromSse,
   collectResponsesFinalPayloadFromSseText,
@@ -142,7 +143,7 @@ export async function handleChatSurfaceRequest(
   const requestEnvelope = parsedRequestEnvelope.value!;
   const {
     requestedModel,
-    isStream,
+    isStream: downstreamStream,
     upstreamBody,
     claudeOriginalBody,
   } = requestEnvelope.parsed;
@@ -286,6 +287,11 @@ export async function handleChatSurfaceRequest(
     });
 
     const modelName = selected.actualModel || requestedModel;
+    const shouldBufferUpstreamChat = (
+      downstreamFormat === 'claude'
+      && downstreamStream
+      && getUpstreamStreamModeFromExtraConfig(selected.account.extraConfig, modelName) === 'buffered'
+    );
     const oauth = getOauthInfoFromAccount(selected.account);
     const isCodexSite = String(selected.site.platform || '').trim().toLowerCase() === 'codex';
     let endpointCandidates = [
@@ -346,7 +352,10 @@ export async function handleChatSurfaceRequest(
         endpoint: 'chat' | 'messages' | 'responses',
         options: { forceNormalizeClaudeBody?: boolean } = {},
       ) => {
-        const upstreamStream = isStream || (forceResponsesUpstreamStream && endpoint === 'responses');
+        const inheritedUpstreamStream = downstreamStream || (forceResponsesUpstreamStream && endpoint === 'responses');
+        const upstreamStream = endpoint === 'chat' && shouldBufferUpstreamChat
+          ? false
+          : inheritedUpstreamStream;
         const bodyForEndpoint = endpoint === 'responses'
           ? (() => {
             const policyResult = applyOpenAiServiceTierPolicy({
@@ -406,7 +415,7 @@ export async function handleChatSurfaceRequest(
         modelName,
         requestedModelHint: requestedModel,
         sitePlatform: selected.site.platform,
-        isStream: isStream || forceResponsesUpstreamStream,
+        isStream: downstreamStream || forceResponsesUpstreamStream,
         buildRequest: ({ endpoint, forceNormalizeClaudeBody }) => buildEndpointRequest(
           endpoint,
           { forceNormalizeClaudeBody },
@@ -570,7 +579,7 @@ export async function handleChatSurfaceRequest(
       const successfulUpstreamPath = endpointResult.upstreamPath;
       const firstByteLatencyMs = getObservedResponseMeta(upstream)?.firstByteLatencyMs ?? null;
 
-      if (isStream) {
+      if (downstreamStream) {
         const upstreamContentType = (upstream.headers.get('content-type') || '').toLowerCase();
         let streamStarted = false;
         const startSseResponse = () => {
@@ -1027,7 +1036,7 @@ export async function handleChatSurfaceRequest(
           status: endpointFailureStatus || 502,
           errText: err.message || 'unknown error',
           rawErrText: err.rawErrText || err.message || 'unknown error',
-          isStream,
+          isStream: downstreamStream,
           latencyMs: Date.now() - startTime,
           retryCount,
         });
@@ -1052,7 +1061,7 @@ export async function handleChatSurfaceRequest(
         requestedModel,
         modelName,
         errorMessage: err?.message || 'network failure',
-        isStream,
+        isStream: downstreamStream,
         latencyMs: Date.now() - startTime,
         retryCount,
       });

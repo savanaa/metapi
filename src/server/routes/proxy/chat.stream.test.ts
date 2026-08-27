@@ -879,6 +879,78 @@ describe('chat proxy stream behavior', () => {
     expect(body.stop_reason).toBe('end_turn');
   });
 
+  it('buffers configured Claude Chat upstream requests while preserving downstream SSE', async () => {
+    fetchModelPricingCatalogMock.mockResolvedValue({
+      models: [{
+        modelName: 'deepseek/deepseek-v4-flash',
+        supportedEndpointTypes: ['chat'],
+      }],
+      groupRatio: {},
+    });
+    selectChannelMock.mockReturnValue({
+      channel: { id: 11, routeId: 22 },
+      site: {
+        name: 'command-code',
+        url: 'https://api.commandcode.ai/provider',
+        platform: 'openai',
+      },
+      account: {
+        id: 33,
+        username: 'demo-user',
+        extraConfig: JSON.stringify({
+          proxy: {
+            upstreamStreamMode: {
+              'deepseek/deepseek-v4-flash': 'buffered',
+            },
+          },
+        }),
+      },
+      tokenName: 'default',
+      tokenValue: 'sk-demo',
+      actualModel: 'deepseek/deepseek-v4-flash',
+    });
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({
+      id: 'chatcmpl-buffered',
+      object: 'chat.completion',
+      created: 1_706_000_002,
+      model: 'deepseek/deepseek-v4-flash',
+      choices: [{
+        index: 0,
+        message: { role: 'assistant', content: 'buffered response' },
+        finish_reason: 'stop',
+      }],
+      usage: { prompt_tokens: 120, completion_tokens: 4, total_tokens: 124 },
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }));
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/messages',
+      payload: {
+        model: 'deepseek/deepseek-v4-flash',
+        max_tokens: 256,
+        stream: true,
+        messages: [{ role: 'user', content: 'hello' }],
+      },
+    });
+
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.headers['content-type']).toContain('text/event-stream');
+    expect(response.body).toContain('event: content_block_delta');
+    expect(response.body).toContain('buffered response');
+    expect(response.body).toContain('event: message_stop');
+
+    const [targetUrl, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(targetUrl).toContain('/v1/chat/completions');
+    expect(options.headers).not.toEqual(expect.objectContaining({ accept: 'text/event-stream' }));
+    expect(JSON.parse(String(options.body))).toEqual(expect.objectContaining({
+      model: 'deepseek/deepseek-v4-flash',
+      stream: false,
+    }));
+  });
+
   it('converts OpenAI SSE chunks into Claude stream events on /v1/messages', async () => {
     const encoder = new TextEncoder();
     const upstreamBody = new ReadableStream<Uint8Array>({

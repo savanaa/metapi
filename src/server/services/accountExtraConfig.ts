@@ -20,11 +20,17 @@ type Sub2ApiSubscriptionConfig = {
 };
 
 export type AccountCredentialMode = 'auto' | 'session' | 'apikey';
+export type UpstreamStreamMode = 'inherit' | 'buffered';
 
 const VALID_CREDENTIAL_MODES = new Set<AccountCredentialMode>([
   'auto',
   'session',
   'apikey',
+]);
+
+const VALID_UPSTREAM_STREAM_MODES = new Set<UpstreamStreamMode>([
+  'inherit',
+  'buffered',
 ]);
 
 type AccountExtraConfig = {
@@ -38,6 +44,10 @@ type AccountExtraConfig = {
   autoRelogin?: AutoReloginConfig;
   sub2apiAuth?: Sub2ApiAuthConfig;
   sub2apiSubscription?: Sub2ApiSubscriptionConfig;
+  proxy?: {
+    upstreamStreamMode?: unknown;
+    [key: string]: unknown;
+  };
   [key: string]: unknown;
 };
 
@@ -166,6 +176,33 @@ export function getCredentialModeFromExtraConfig(extraConfig?: ExtraConfigInput)
 export function getOauthProviderFromExtraConfig(extraConfig?: ExtraConfigInput): string | undefined {
   const parsed = parseExtraConfig(extraConfig);
   return normalizeNonEmptyString(parsed.oauth?.provider);
+}
+
+function normalizeModelName(raw: unknown): string {
+  return typeof raw === 'string' ? raw.trim().toLowerCase() : '';
+}
+
+export function getUpstreamStreamModeFromExtraConfig(
+  extraConfig: ExtraConfigInput,
+  modelName: string,
+): UpstreamStreamMode {
+  const normalizedModelName = normalizeModelName(modelName);
+  if (!normalizedModelName) return 'inherit';
+
+  const configuredModes = parseExtraConfig(extraConfig).proxy?.upstreamStreamMode;
+  if (!isRecord(configuredModes)) return 'inherit';
+
+  const matchedEntry = Object.entries(configuredModes).find(([configuredModel]) => (
+    normalizeModelName(configuredModel) === normalizedModelName
+  ));
+  if (!matchedEntry) return 'inherit';
+
+  const rawMode = typeof matchedEntry[1] === 'string'
+    ? matchedEntry[1].trim().toLowerCase()
+    : '';
+  return VALID_UPSTREAM_STREAM_MODES.has(rawMode as UpstreamStreamMode)
+    ? rawMode as UpstreamStreamMode
+    : 'inherit';
 }
 
 function getOauthProvider(input?: OauthProviderInput): string | undefined {

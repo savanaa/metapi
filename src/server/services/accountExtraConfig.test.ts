@@ -9,6 +9,7 @@ import {
   resolveProxyUrlFromExtraConfig,
   getSub2ApiAuthFromExtraConfig,
   getSub2ApiSubscriptionFromExtraConfig,
+  getUpstreamStreamModeFromExtraConfig,
   guessPlatformUserIdFromUsername,
   mergeAccountExtraConfig,
   normalizeCredentialMode,
@@ -19,6 +20,32 @@ import {
 import { config } from '../config.js';
 
 describe('accountExtraConfig', () => {
+  it('reads an exact model upstream stream mode from proxy config', () => {
+    const extraConfig = JSON.stringify({
+      proxy: {
+        upstreamStreamMode: {
+          'deepseek/deepseek-v4-flash': 'buffered',
+        },
+      },
+    });
+
+    expect(getUpstreamStreamModeFromExtraConfig(extraConfig, 'deepseek/deepseek-v4-flash')).toBe('buffered');
+    expect(getUpstreamStreamModeFromExtraConfig(extraConfig, ' DEEPSEEK/DEEPSEEK-V4-FLASH ')).toBe('buffered');
+    expect(getUpstreamStreamModeFromExtraConfig(extraConfig, 'deepseek-v4-flash')).toBe('inherit');
+  });
+
+  it('falls back to inherit for invalid, missing, or malformed upstream stream modes', () => {
+    expect(getUpstreamStreamModeFromExtraConfig(null, 'deepseek/deepseek-v4-flash')).toBe('inherit');
+    expect(getUpstreamStreamModeFromExtraConfig(JSON.stringify({}), 'deepseek/deepseek-v4-flash')).toBe('inherit');
+    expect(getUpstreamStreamModeFromExtraConfig(JSON.stringify({
+      proxy: { upstreamStreamMode: { 'deepseek/deepseek-v4-flash': 'streaming' } },
+    }), 'deepseek/deepseek-v4-flash')).toBe('inherit');
+    expect(getUpstreamStreamModeFromExtraConfig(JSON.stringify({
+      proxy: { upstreamStreamMode: { 'deepseek/deepseek-v4-flash': true } },
+    }), 'deepseek/deepseek-v4-flash')).toBe('inherit');
+    expect(getUpstreamStreamModeFromExtraConfig('invalid-json', 'deepseek/deepseek-v4-flash')).toBe('inherit');
+  });
+
   it('reads platformUserId from extra config when present', () => {
     expect(getPlatformUserIdFromExtraConfig(JSON.stringify({ platformUserId: 11494 }))).toBe(11494);
     expect(getPlatformUserIdFromExtraConfig(JSON.stringify({ platformUserId: '7659' }))).toBe(7659);
